@@ -1,4 +1,3 @@
-
 use crate::ais::{AisError, Instruction, Opcode, Register};
 
 #[derive(Debug)]
@@ -29,6 +28,15 @@ enum SymRefKind {
     LowImm,
 }
 
+fn imm_high(addr: u32) -> u16 {
+    ((addr >> 16) & 0xFFFF).try_into().unwrap()
+}
+
+fn imm_low(addr: u32) -> u16 {
+    (addr & 0xFFFF).try_into().unwrap()
+}
+
+#[derive(Debug)]
 struct SymRef {
     kind: SymRefKind,
     offset: u32,
@@ -40,57 +48,13 @@ pub struct DynAsm {
     symbols: Vec<Symbol>,
 }
 
-trait Symbols {
-    fn get(&mut self, sym: Sym) -> Result<&mut Symbol, DynAsmError>;
-}
-
-impl Symbols for Vec<Symbol> {
-    fn get(&mut self, sym: Sym) -> Result<&mut Symbol, DynAsmError> {
-        self.get_mut(sym.0).ok_or(DynAsmError::InvalidSym)
-    }
-}
-
-trait Memory {
-    fn sym_ref_resolve(&mut self, sym_ref: SymRef, addr: u32) -> Result<(), DynAsmError>;
-}
-
-impl Memory for Vec<u8> {
-    fn sym_ref_resolve(&mut self, sym_ref: SymRef, addr: u32) -> Result<(), DynAsmError> {
-        // Decode
-        let start = sym_ref.offset.try_into().unwrap();
-        let end = self.len();
-        let bytes = self.get_mut(start..end).unwrap();
-        let (mut instr, len) = Instruction::decode(bytes)?;
-
-        // Fixup
-        match sym_ref.kind {
-            SymRefKind::LowImm => {
-                instr.imm = Some((addr & 0xFFFF).try_into().unwrap());
-            }
-            SymRefKind::HighImm => {
-                instr.imm = Some((addr >> 16 & 0xFFFF).try_into().unwrap());
-            }
-        }
-
-        // Encode
-        let new_bytes = instr.encode()?;
-        if new_bytes.len() != len {
-            return Err(DynAsmError::ResolveUnstable);
-        }
-
-        let old_bytes = &mut bytes[0..len];
-        old_bytes.copy_from_slice(&new_bytes);
-
-        Ok(())
-    }
-}
-
 const HEADER: &[u8] = &[
-    0xE8, 0x00, 0x00, 0x00, 0x00,   //     call 1f
-    0x58,                           // 1:  pop eax
-    0x83, 0xC0, 0x06,               //     add eax, 6
-    0x0F, 0x3F,                     //     jmpai eax
-    // <- jmpai should jump to here, this is where the AI wrapper instruction start.
+    0xE8, 0x00, 0x00, 0x00, 0x00, //     call 1f
+    0x58, // 1:  pop eax
+    0x83, 0xC0, 0x06, //     add eax, 6
+    0x0F,
+    0x3F, //     jmpai eax
+          // <- jmpai should jump to here, this is where the AI wrapper instruction start.
 ];
 
 const FOOTER: &[u8] = &[
@@ -114,34 +78,81 @@ impl DynAsm {
         self.offset() + self.base
     }
 
-    fn sym_resolve(&mut self, sym: Sym, addr: u32) -> Result<(), DynAsmError> {
-        let symbol = self.symbols.get(sym)?;
-        let old = core::mem::replace(symbol, Symbol::Resolved(addr));
+    fn symbol(&mut self, sym: Sym) -> Result<&mut Symbol, DynAsmError> {
+        self.symbols.get_mut(sym.0).ok_or(DynAsmError::InvalidSym)
+    }
 
-        match old {
+    fn sym_ref_resolve(&mut self, sym_ref: SymRef, addr: u32) -> Result<(), DynAsmError> {
+        println!("fixup: {:?} = {:X}", sym_ref, addr);
+
+        // Decode
+        let start = sym_ref.offset.try_into().unwrap();
+        let end = self.memory.len();
+        let bytes = self.memory.get_mut(start..end).unwrap();
+        let (mut instr, len) = Instruction::decode(bytes)?;
+
+        // Fixup
+        match sym_ref.kind {
+            SymRefKind::LowImm => {
+                instr.imm = Some(imm_low(addr));
+            }
+            SymRefKind::HighImm => {
+                instr.imm = Some(imm_high(addr));
+            }
+        }
+
+        // Encode
+        let new_bytes = instr.encode()?;
+        if new_bytes.len() != len {
+            return Err(DynAsmError::ResolveUnstable);
+        }
+
+        let old_bytes = &mut bytes[0..len];
+        old_bytes.copy_from_slice(&new_bytes);
+
+        Ok(())
+    }
+
+    fn sym_resolve(&mut self, sym: Sym, addr: u32) -> Result<(), DynAsmError> {
+        let symbol = self.symbol(sym)?;
+
+        let sym_refs = match symbol {
             Symbol::Unresolved(refs) => {
-                for sym_ref in refs {
-                    self.memory.sym_ref_resolve(sym_ref, addr)?;
-                }
+                let refs = core::mem::take(refs);
+                *symbol = Symbol::Resolved(addr);
+                refs
             }
             Symbol::Resolved(_) => return Err(DynAsmError::SymbolRedefined),
+        };
+
+        for sym_ref in sym_refs {
+            self.sym_ref_resolve(sym_ref, addr)?;
         }
 
         Ok(())
     }
 
-    fn sym_fixup(&mut self, sym: Sym, kind: SymRefKind) -> Result<(), DynAsmError> {
+    fn sym_ref(&mut self, sym: Sym, kind: SymRefKind) -> Result<u32, DynAsmError> {
         let sym_ref = SymRef {
-            offset: self.offset() - 6,
+            offset: self.offset(),
             kind,
         };
 
-        match self.symbols.get(sym)? {
-            Symbol::Unresolved(refs) => refs.push(sym_ref),
-            Symbol::Resolved(addr) => self.memory.sym_ref_resolve(sym_ref, *addr)?,
-        };
+        match self.symbol(sym)? {
+            Symbol::Unresolved(refs) => {
+                refs.push(sym_ref);
+                Ok(0)
+            }
+            Symbol::Resolved(addr) => Ok(*addr),
+        }
+    }
 
-        Ok(())
+    fn sym_ref_imm_high(&mut self, sym: Sym) -> Result<u16, DynAsmError> {
+        self.sym_ref(sym, SymRefKind::HighImm).map(imm_high)
+    }
+
+    fn sym_ref_imm_low(&mut self, sym: Sym) -> Result<u16, DynAsmError> {
+        self.sym_ref(sym, SymRefKind::LowImm).map(imm_low)
     }
 
     pub fn new_sym(&mut self) -> Sym {
@@ -157,7 +168,7 @@ impl DynAsm {
     }
 
     pub fn sym_addr(&mut self, sym: Sym) -> Result<Option<u32>, DynAsmError> {
-        Ok(match self.symbols.get(sym)? {
+        Ok(match self.symbol(sym)? {
             Symbol::Unresolved(_) => None,
             Symbol::Resolved(addr) => Some(*addr),
         })
@@ -182,7 +193,7 @@ impl DynAsm {
                 self.gen(Instruction::i_type(
                     Opcode::ORI,
                     dst.clone(),
-                    0.into(),
+                    0.try_into()?,
                     imm as u16,
                 ))?;
                 self.gen(Instruction::i_type(
@@ -195,30 +206,36 @@ impl DynAsm {
             (false, true) => self.gen(Instruction::i_type(
                 Opcode::ORIU,
                 dst,
-                0.into(),
+                0.try_into()?,
                 (imm >> 16) as u16,
             ))?,
-            (true, _) => self.gen(Instruction::i_type(Opcode::ORI, dst, 0.into(), imm as u16))?,
+            (true, _) => self.gen(Instruction::i_type(
+                Opcode::ORI,
+                dst,
+                0.try_into()?,
+                imm as u16,
+            ))?,
         }
 
         Ok(())
     }
 
     pub fn gen_load_symbol(&mut self, dst: Register, sym: Sym) -> Result<(), DynAsmError> {
+        let low = self.sym_ref_imm_low(sym)?;
         self.gen(Instruction::i_type(
             Opcode::ORI,
             dst.clone(),
-            0.into(),
-            0xDEAD,
+            0.try_into()?,
+            low,
         ))?;
-        self.sym_fixup(sym, SymRefKind::LowImm)?;
-        self.gen(Instruction::i_type(Opcode::ORIU, dst.clone(), dst, 0xDEAD))?;
-        self.sym_fixup(sym, SymRefKind::HighImm)
+
+        let high = self.sym_ref_imm_high(sym)?;
+        self.gen(Instruction::i_type(Opcode::ORIU, dst.clone(), dst, high))
     }
 
     pub fn gen_jump(&mut self, sym: Sym) -> Result<(), DynAsmError> {
-        self.gen_load_symbol("R4".into(), sym)?;
-        self.gen(Instruction::xj("R4".into()))?;
+        self.gen_load_symbol("R4".try_into()?, sym)?;
+        self.gen(Instruction::xj("R4".try_into()?))?;
         Ok(())
     }
 
