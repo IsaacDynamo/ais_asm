@@ -37,6 +37,14 @@ pub fn multiboot_entry(_: &[u8]) {
 
     println!("AIS is supported and has been enabled");
 
+    println!("EFLAGS {:08X}", asm::flags());
+
+    let reg_dump: &mut [u32; 32] = unsafe { core::mem::transmute( 0x50_0000) };
+
+    for i in reg_dump.iter_mut() {
+        *i = 0;
+    }
+
     println!("Run payload at 0x{:08X}", PAYLOAD.as_ptr() as u32);
 
     // Flush serial
@@ -50,6 +58,10 @@ pub fn multiboot_entry(_: &[u8]) {
 
     // Show result
     println!("Result EAX = 0x{:08X}", r);
+    println!("Register dump");
+    for i in reg_dump.iter() {
+        println!("0x{:08X}", i);
+    }
 
     println!("Done");
     loop {

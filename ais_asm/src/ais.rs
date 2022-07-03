@@ -1,3 +1,58 @@
+/* NOTES
+
+Internal state / registers
+
+
+TSR         ?Translator Status Register?
+TSR.OS      Operand Size
+TSR.AS      Address Size
+TSR.SAS     Stack Address Size
+TSR.SEL?
+TSR.DPcntl
+TSR.REPN
+TSR.LK      Lock, the x86 instruction had a valid LOCK prefix
+
+IMMED
+DISP
+COUNT
+
+LO/HI/MD         Registers used by multiply and divide
+
+
+IIR.tttn
+
+CP2 registers
+TSC_U       Time stamp counter Upper 32bits
+TSC_L       Time stamp counter Lower 32bits
+CR0
+EFLAGS
+
+NSIP        ... Instruction Pointer, mentioned to be a CP2 register
+
+
+MTCNT       Load COUNT (?Move To CouNT?)
+CTC2    	Store to CP2
+CFC2        Move control from CP2
+
+
+XALU:       CTC2/MFLOU/MFLOI
+
+
+"Instructions that AND and OR a value with the EFLAGS register"
+"Selected x86 control register such as CR0 can be loaded or stored without any protection checking"
+
+MT..        ?Move To?           C0/C1/C2/CNT
+MF..        ?Move From?         C0/C1/C2/CNT/HI/LOU/LOI
+DMF..       ?Double Move From?  C1
+DMT..       ?Double Move To?    C1/C2/MD
+CT..        ?Copy To?           C1/C2
+CF..        ?Copy From?         C1/C2/PFL
+
+Remaining XMISC:
+XRET, XCNULL, XRFP, XHALT SBF/SBN, XTI, XTII, XMDB, XMDBI
+
+*/
+
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 use std::{convert::TryFrom, ops::Range};
@@ -16,12 +71,14 @@ pub enum AisError {
     MissingConstant(Instruction),
     MissingOffset(Instruction),
     MissingFunction(Instruction),
+    UnsupportedOffset(Offset),
 
     DecodeError(Vec<u8>),
     DecodeIssue,
 
     UnknownOpcode(u32),
     UnknownOffset(u8),
+    UnknownConst(u8),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -74,6 +131,21 @@ impl TryFrom<&str> for Register {
 pub enum Const {
     Number(i8),
     // There are some other special case, skip for now
+    Raw(u8),
+}
+
+
+impl TryFrom<u8> for Const {
+    type Error = AisError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0b00000 => Ok(Self::Number(0)),
+            x if x < 32 => Ok(Self::Raw(x)),
+            _ => Err(AisError::UnknownConst(value)),
+        }
+    }
+
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -107,10 +179,9 @@ impl TryFrom<u8> for Offset {
             0b01001 => Ok(Self::Number(-1)),
             0b01010 => Ok(Self::Number(-2)),
             0b01011 => Ok(Self::Number(-4)),
-
             0b01100 => Ok(Self::Number(-8)),
-            0b01111 => Ok(Self::Number(5)),
 
+            0b01111 => Ok(Self::Number(5)),
             0b10000 => Ok(Self::OS),
             0b10001 => Ok(Self::PDOS),
 
@@ -186,6 +257,13 @@ pub enum Function {
     Xalu(SubOpXalu, DpCntl),
     Xj(XjSize, XjMode),
     Xlea(AddrSize, Size),
+    Xmisc(SubFunc, u8),
+    Raw(u16),
+}
+
+#[derive(Debug, Copy, Clone, FromPrimitive)]
+pub enum SubFunc {
+    CFC2 = 0o37,
 }
 
 #[derive(Debug, Copy, Clone, FromPrimitive)]
@@ -216,6 +294,7 @@ pub enum DpCntl {
 #[derive(Debug, Copy, Clone, PartialEq, FromPrimitive)]
 pub enum Opcode {
     XJ = 0o06,
+    XJ7 = 0o00, // TODO remove
 
     // I type
     ORIU = 0o10,
@@ -304,6 +383,7 @@ pub struct Instruction {
     pub constant: Option<Const>,
     pub offset: Option<Offset>,
     pub function: Option<Function>,
+    pub mask: u32,
 }
 
 impl Instruction {
@@ -317,6 +397,7 @@ impl Instruction {
             constant: None,
             offset: None,
             function: None,
+            mask: 0
         }
     }
 
@@ -455,10 +536,19 @@ impl Instruction {
         instr
     }
 
+    pub fn cfc2(dst: Register, src: Register) -> Self {
+        let mut instr = Self::new(Opcode::XMISC);
+        instr.rt = Some(dst);
+        instr.rd = Some(src);
+        instr.function = Some(Function::Xmisc(SubFunc::CFC2, 0));
+        instr
+    }
+
     pub fn xj(base: Register) -> Self {
         let mut ret = Self::new(Opcode::XJ);
         ret.rt = Some(base);
         ret.function = Some(Function::Xj(XjSize::Bits32, XjMode::AIS));
+        ret.mask = 0b0001 << 2;
         ret
     }
 
@@ -533,7 +623,13 @@ impl Instruction {
             .constant
             .ok_or_else(|| AisError::MissingConstant(self.clone()))?;
 
-        Ok(0 /*c as u32*/) // FIXME
+        let bits = match c {
+            Const::Number(0) => 0,
+            Const::Raw(x) => x.into(),
+            _ => todo!(),
+        };
+
+        Ok(bits << 16)
     }
 
     fn encode_offset(&self) -> Result<u32, AisError> {
@@ -543,13 +639,34 @@ impl Instruction {
 
         let offset_bits = match offset {
             Offset::Number(0) => 0b00000,
+            Offset::Number(1) => 0b00001,
+            Offset::Number(2) => 0b00010,
             Offset::Number(4) => 0b00011,
+            Offset::Number(8) => 0b00100,
+            Offset::Number(16) => 0b00101,
+            Offset::Number(24) => 0b00110,
+            Offset::Number(32) => 0b00111,
+            Offset::Number(10) => 0b01000,
+            Offset::Number(-1) => 0b01001,
+            Offset::Number(-2) => 0b01010,
             Offset::Number(-4) => 0b01011,
-            Offset::DISP => 0b11111,
+            Offset::Number(-8) => 0b01100,
+
+            Offset::Number(5) => 0b01111,
+
             Offset::OS => 0b10000,
+            Offset::PDOS => 0b10001,
+
             Offset::MOS => 0b11000,
+            Offset::MGS => 0b11001,
             Offset::MDOS => 0b11010,
-            _ => todo!("All variants of Offset"),
+
+            Offset::DF => 0b11100,
+            Offset::DFOS => 0b11101,
+
+            Offset::DISP => 0b11111,
+
+            Offset::Number(_) => return Err(AisError::UnsupportedOffset(offset)),
         };
 
         Ok(offset_bits << 21)
@@ -571,7 +688,7 @@ impl Instruction {
                     | (size as u32 & 1) << 1
                     | addr_size as u32 & 1
             }
-            Function::Xj(size, mode) => (size as u32) << 6 | 0b0001 << 2 | mode as u32,
+            Function::Xj(size, mode) => (size as u32) << 6 | mode as u32,
             Function::Xls(sub_op, addr_size, size, sel) => {
                 let subop_bits = 0; //(sub_op as u32) << 9; // self.encode_sub_op_xls(sub_op)?;
                 subop_bits
@@ -590,13 +707,21 @@ impl Instruction {
                     | bits(size, 3..3) << 2
                     | bits(size, 0..0) << 1
                     | bits(addr_size, 0..0)
+            },
+            Function::Raw(x) => {
+                x.into()
+            },
+            Function::Xmisc(sub_func, raw) => {
+                let subfunc_bits = sub_func as u32;
+
+                subfunc_bits << 6 | raw as u32
             }
         };
 
         Ok(bits)
     }
 
-    pub fn encode(&self) -> Result<Vec<u8>, AisError> {
+    pub fn encode32(&self) -> Result<u32, AisError> {
         let instr = if self.is_i_type() {
             let op = self.encode_opcode()?;
             let rs = self.encode_rs()?;
@@ -620,14 +745,22 @@ impl Instruction {
             let function = self.encode_function()?;
 
             op | rs | c | rd | function
-        } else if self.opcode == Opcode::XJ {
+        } else if self.opcode == Opcode::XJ || self.opcode == Opcode::XJ7 {
             let op = self.encode_opcode()?;
             let rt = self.encode_rt()?;
             let function = self.encode_function()?;
 
-            assert!(function == 0b01_0001_00); // 32bit & stay in AIS mode
+            //assert!(function == 0b01_0001_00); // 32bit & stay in AIS mode
 
             op | rt | function
+        } else if self.opcode == Opcode::XMISC {
+            let op = self.encode_opcode()?;
+            let rs = 0; //self.encode_rs()?;
+            let rt = self.encode_rt()?;
+            let rd = self.encode_rd()?;
+            let function = self.encode_function()?;
+
+            op | rs | rt | rd | function
         } else if self.is_xls_type() || self.opcode == Opcode::XLEAD {
             let op = self.encode_opcode()?;
             let rs = Self::encode_register(&self.rs, || AisError::MissingRs(self.clone()))? << 11;
@@ -641,6 +774,13 @@ impl Instruction {
         } else {
             return Err(AisError::Unsupported(self.clone()));
         };
+
+        Ok(instr | self.mask)
+    }
+
+    pub fn encode(&self) -> Result<Vec<u8>, AisError> {
+
+        let instr = self.encode32()?;
 
         let mut data = Vec::new();
         data.extend_from_slice(&[0x62, 0x80]);
@@ -682,9 +822,19 @@ impl Instruction {
             instr.function = Some(decode_xalu_function(word)?);
             instr.rs = Some(rs_bits.try_into()?);
             instr.rd = Some(rd_bits.try_into()?);
-        } else if instr.opcode == Opcode::XJ {
+            instr.constant = Some(rt_bits.try_into()?);
+        } else if instr.opcode == Opcode::XJ || instr.opcode == Opcode::XJ7 {
             instr.rt = Some(rt_bits.try_into()?);
             instr.function = Some(decode_xj_function(word)?);
+        } else if instr.opcode == Opcode::XMISC {
+            instr.rs = Some(rs_bits.try_into()?);
+            instr.rt = Some(rt_bits.try_into()?);
+            instr.rd = Some(rd_bits.try_into()?);
+
+            let subfunc =  FromPrimitive::from_u32(bits(word, 10..6)).ok_or(AisError::DecodeIssue)?;
+            let other_bits = bits(word, 5..0).try_into().unwrap();
+
+            instr.function = Some(Function::Xmisc(subfunc, other_bits));
         } else if instr.is_xls_type() || instr.opcode == Opcode::XLEAD {
             // The XLS type has an other order of fields
             let xls_rs_bits = rd_bits;
@@ -697,6 +847,11 @@ impl Instruction {
         } else {
             return Err(AisError::DecodeError(bytes.into()));
         }
+
+        let code = instr.encode32()?;
+        instr.mask = word & !code;
+
+        assert!(word == code | instr.mask);
 
         Ok((instr, 6))
     }
