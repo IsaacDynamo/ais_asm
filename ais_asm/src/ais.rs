@@ -627,6 +627,8 @@ impl Instruction {
 
             Const::Number(5) => 0b01111,
 
+            Const::Number(6) => 0b10010,
+
             Const::Raw(x) => x.into(),
             _ => todo!(),
         };

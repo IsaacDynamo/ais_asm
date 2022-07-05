@@ -288,20 +288,22 @@ impl DynAsm {
 
     pub fn gen_call(&mut self, sym: Sym) -> Result<(), DynAsmError> {
         let r4 = "R4".try_into()?;
-
-        let ret_addr = self.new_sym();
-        self.gen_load_symbol(r4, ret_addr)?;
-
-        self.gen(Instruction::xpush(Size::Bits32, r4))?;
-        self.gen_jump(sym)?;
-
-        self.set_sym_here(ret_addr)?;
+        self.gen_load_symbol(r4, sym)?;
+        self.gen(Instruction::xpuship(Size::Bits32))?;
+        self.gen(Instruction::xj(r4))?;
         Ok(())
     }
 
     pub fn gen_ret(&mut self) -> Result<(), DynAsmError> {
         let r4 = "R4".try_into()?;
         self.gen(Instruction::xpop(Size::Bits32, r4))?;
+        self.gen(Instruction::xaluir(
+            SubOpXalu::ADD,
+            DpCntl::Word,
+            r4,
+            r4,
+            Const::Number(6),
+        ))?;
         self.gen(Instruction::xj(r4))?;
         Ok(())
     }
