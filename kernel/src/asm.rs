@@ -64,5 +64,5 @@ pub fn cpuid(val: u32) -> [u32; 4] {
         options(nomem, nostack));
     }
 
-    [eax,ebx,ecx,edx]
+    [eax, ebx, ecx, edx]
 }

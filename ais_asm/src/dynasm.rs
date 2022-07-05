@@ -1,4 +1,4 @@
-use crate::ais::{AisError, Instruction, Opcode, Register, Size, SubOpXalu, DpCntl, Const};
+use crate::ais::{AisError, Const, DpCntl, Instruction, Opcode, Register, Size, SubOpXalu};
 
 #[derive(Debug)]
 pub enum DynAsmError {
@@ -245,7 +245,13 @@ impl DynAsm {
         let r5 = "R5".try_into()?;
 
         // AND condition with one to make sure its 0 or 1
-        self.gen(Instruction::xaluir(SubOpXalu::AND, DpCntl::Word, r5, cond, Const::Number(1)))?;
+        self.gen(Instruction::xaluir(
+            SubOpXalu::AND,
+            DpCntl::Word,
+            r5,
+            cond,
+            Const::Number(1),
+        ))?;
 
         // Map 0 to 0x0000_0000 and 1 to 0xFFFF_FFFF
         self.gen(Instruction::xalur(SubOpXalu::SUB, DpCntl::Word, r4, r0, r5))?;
@@ -257,7 +263,13 @@ impl DynAsm {
         self.gen(Instruction::i_type(Opcode::ANDIU, r4, r4, high))?;
 
         // Map 0 to 0xFFFF_FFFF and 1 to 0x0000_0000
-        self.gen(Instruction::xaluir(SubOpXalu::SUB, DpCntl::Word, r5, r5, Const::Number(1)))?;
+        self.gen(Instruction::xaluir(
+            SubOpXalu::SUB,
+            DpCntl::Word,
+            r5,
+            r5,
+            Const::Number(1),
+        ))?;
 
         // AND in false branch sym address
         let low = self.sym_ref_imm_low(f)?;
@@ -275,7 +287,7 @@ impl DynAsm {
     }
 
     pub fn gen_call(&mut self, sym: Sym) -> Result<(), DynAsmError> {
-        let  r4 = "R4".try_into()?;
+        let r4 = "R4".try_into()?;
 
         let ret_addr = self.new_sym();
         self.gen_load_symbol(r4, ret_addr)?;
@@ -288,7 +300,7 @@ impl DynAsm {
     }
 
     pub fn gen_ret(&mut self) -> Result<(), DynAsmError> {
-        let  r4 = "R4".try_into()?;
+        let r4 = "R4".try_into()?;
         self.gen(Instruction::xpop(Size::Bits32, r4))?;
         self.gen(Instruction::xj(r4))?;
         Ok(())

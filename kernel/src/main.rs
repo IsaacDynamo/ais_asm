@@ -10,8 +10,8 @@ mod panic;
 mod print;
 mod uart;
 
-use core::arch::asm;
 use crate::print::SERIAL1;
+use core::arch::asm;
 
 // Include the payload, linker script will place it a 0x48000
 #[link_section = ".payload"]
@@ -24,22 +24,19 @@ pub fn multiboot_entry(_: &[u8]) {
 
     // Enable AIS
     unsafe {
-        let fcr= asm::rdmsr(0x1107);
+        let fcr = asm::rdmsr(0x1107);
         asm::wrmsr(0x1107, fcr | 0x0001);
     }
 
     // Test Centaur Extended Features Flags
     let flags = asm::cpuid(0xC0000001);
-    assert!(
-        flags[3] & 3 == 3,
-        "AIS is not supported or not enabled"
-    );
+    assert!(flags[3] & 3 == 3, "AIS is not supported or not enabled");
 
     println!("AIS is supported and has been enabled");
 
     println!("EFLAGS {:08X}", asm::flags());
 
-    let reg_dump: &mut [u32; 32] = unsafe { core::mem::transmute( 0x50_0000) };
+    let reg_dump: &mut [u32; 32] = unsafe { core::mem::transmute(0x50_0000) };
 
     for i in reg_dump.iter_mut() {
         *i = 0;

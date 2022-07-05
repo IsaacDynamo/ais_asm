@@ -134,7 +134,6 @@ pub enum Const {
     Raw(u8),
 }
 
-
 impl TryFrom<u8> for Const {
     type Error = AisError;
 
@@ -145,7 +144,6 @@ impl TryFrom<u8> for Const {
             _ => Err(AisError::UnknownConst(value)),
         }
     }
-
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -397,7 +395,7 @@ impl Instruction {
             constant: None,
             offset: None,
             function: None,
-            mask: 0
+            mask: 0,
         }
     }
 
@@ -711,10 +709,8 @@ impl Instruction {
                     | bits(size, 3..3) << 2
                     | bits(size, 0..0) << 1
                     | bits(addr_size, 0..0)
-            },
-            Function::Raw(x) => {
-                x.into()
-            },
+            }
+            Function::Raw(x) => x.into(),
             Function::Xmisc(sub_func, raw) => {
                 let subfunc_bits = sub_func as u32;
 
@@ -783,7 +779,6 @@ impl Instruction {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, AisError> {
-
         let instr = self.encode32()?;
 
         let mut data = Vec::new();
@@ -835,7 +830,8 @@ impl Instruction {
             instr.rt = Some(rt_bits.try_into()?);
             instr.rd = Some(rd_bits.try_into()?);
 
-            let subfunc =  FromPrimitive::from_u32(bits(word, 10..6)).ok_or(AisError::DecodeIssue)?;
+            let subfunc =
+                FromPrimitive::from_u32(bits(word, 10..6)).ok_or(AisError::DecodeIssue)?;
             let other_bits = bits(word, 5..0).try_into().unwrap();
 
             instr.function = Some(Function::Xmisc(subfunc, other_bits));
