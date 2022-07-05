@@ -1,7 +1,7 @@
 mod ais;
 mod dynasm;
 
-use crate::ais::{AisError, DpCntl, Instruction, SubOpXalu, Register, Size, Offset, Opcode, Function};
+use crate::ais::{AisError, DpCntl, Instruction, SubOpXalu, Register, Size, Offset, Opcode, Function, Const};
 use crate::dynasm::{DynAsm, DynAsmError, Sym};
 
 use std::fs::File;
@@ -338,6 +338,96 @@ fn test_xj(asm: &mut DynAsm) -> Result<(), TopError> {
     Ok(())
 }
 
+
+fn test_cond_jump(asm: &mut DynAsm) -> Result<(), TopError> {
+    let eax: Register = "EAX".try_into()?;
+    let ecx: Register = "ECX".try_into()?;
+
+    asm.gen_load(eax, 0)?;
+    asm.gen_load(ecx, 0b111111)?;
+
+
+    let done = asm.new_sym();
+    let body = asm.new_sym();
+    let looop = asm.new_sym_here();
+
+    asm.gen_cond_jump(ecx, body, done)?;
+    asm.set_sym_here(body)?;
+
+    asm.gen(Instruction::xaluir(SubOpXalu::ADD, DpCntl::Word, eax, eax, Const::Number(1)))?;
+
+    asm.gen(Instruction::xaluir(SubOpXalu::SHR, DpCntl::Word, ecx, ecx, Const::Number(1)))?;
+
+    asm.gen_jump(looop)?;
+    asm.set_sym_here(done)?;
+
+    Ok(())
+}
+
+fn test_call_ret(asm: &mut DynAsm) -> Result<(), TopError> {
+    let eax: Register = "EAX".try_into()?;
+    let ecx: Register = "ECX".try_into()?;
+
+    let start = asm.new_sym();
+    asm.gen_jump(start)?;
+
+    let add = asm.new_sym_here();
+    asm.gen(Instruction::xalur(SubOpXalu::ADD, DpCntl::Word, eax, eax, ecx))?;
+    asm.gen_ret()?;
+
+
+    let inc = asm.new_sym_here();
+    asm.gen_load(ecx, 1)?;
+    asm.gen_call(add)?;
+    asm.gen_ret()?;
+
+    asm.set_sym_here(start)?;
+    asm.gen_load(eax, 0)?;
+    asm.gen_load(ecx, 41)?;
+    asm.gen_call(add)?;
+    asm.gen_call(inc)?;
+
+
+    Ok(())
+}
+
+fn test_hello_world(asm: &mut DynAsm) -> Result<(), TopError> {
+    let eax: Register = "EAX".try_into()?;
+    let ecx: Register = "ECX".try_into()?;
+    let edx: Register = "EDX".try_into()?;
+
+    let start = asm.new_sym();
+    asm.gen_jump(start)?;
+
+    let putc = asm.new_sym_here();
+
+    asm.gen_load(edx, 0x3F8 + 5)?;
+    asm.gen(Instruction::xior(ais::Size::Bits8L, edx, eax))?;
+
+    asm.gen(Instruction::xaluir(SubOpXalu::SHR, DpCntl::Word, eax, eax, Const::Number(5)))?;
+
+    let ready = asm.new_sym();
+    asm.gen_cond_jump(eax, ready, putc)?;
+    asm.set_sym_here(ready)?;
+
+    asm.gen_load(edx, 0x3F8)?;
+    asm.gen(Instruction::xiow(ais::Size::Bits8L, edx, ecx))?;
+
+    asm.gen_ret()?;
+
+
+    asm.set_sym_here(start)?;
+
+
+    for b in "Hello World!\n".as_bytes() {
+        asm.gen_load(ecx, (*b).into())?;
+        asm.gen_call(putc)?;
+    }
+
+
+    Ok(())
+}
+
 fn main() -> Result<(), TopError> {
 
 
@@ -363,7 +453,10 @@ fn main() -> Result<(), TopError> {
     //test_xj(&mut asm)?;
     //dump_regs(&mut asm)?;
     //dump_offset(&mut asm)?;
-    dump_constant(&mut asm)?;
+    //dump_constant(&mut asm)?;
+    //test_cond_jump(&mut asm)?;
+    //test_call_ret(&mut asm)?;
+    test_hello_world(&mut asm)?;
 
     // Append footer and we are done. This is just a return, so it will return from the payload back into the kernel
     asm.gen_footer();

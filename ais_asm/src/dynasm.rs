@@ -1,4 +1,4 @@
-use crate::ais::{AisError, Instruction, Opcode, Register};
+use crate::ais::{AisError, Instruction, Opcode, Register, Size, SubOpXalu, DpCntl, Const};
 
 #[derive(Debug)]
 pub enum DynAsmError {
@@ -236,6 +236,61 @@ impl DynAsm {
     pub fn gen_jump(&mut self, sym: Sym) -> Result<(), DynAsmError> {
         self.gen_load_symbol("R4".try_into()?, sym)?;
         self.gen(Instruction::xj("R4".try_into()?))?;
+        Ok(())
+    }
+
+    pub fn gen_cond_jump(&mut self, cond: Register, t: Sym, f: Sym) -> Result<(), DynAsmError> {
+        let r0 = "R0".try_into()?;
+        let r4 = "R4".try_into()?;
+        let r5 = "R5".try_into()?;
+
+        // AND condition with one to make sure its 0 or 1
+        self.gen(Instruction::xaluir(SubOpXalu::AND, DpCntl::Word, r5, cond, Const::Number(1)))?;
+
+        // Map 0 to 0x0000_0000 and 1 to 0xFFFF_FFFF
+        self.gen(Instruction::xalur(SubOpXalu::SUB, DpCntl::Word, r4, r0, r5))?;
+
+        // AND in true branch sym address
+        let low = self.sym_ref_imm_low(t)?;
+        self.gen(Instruction::i_type(Opcode::ANDIL, r4, r4, low))?;
+        let high = self.sym_ref_imm_high(t)?;
+        self.gen(Instruction::i_type(Opcode::ANDIU, r4, r4, high))?;
+
+        // Map 0 to 0xFFFF_FFFF and 1 to 0x0000_0000
+        self.gen(Instruction::xaluir(SubOpXalu::SUB, DpCntl::Word, r5, r5, Const::Number(1)))?;
+
+        // AND in false branch sym address
+        let low = self.sym_ref_imm_low(f)?;
+        self.gen(Instruction::i_type(Opcode::ANDIL, r5, r5, low))?;
+        let high = self.sym_ref_imm_high(f)?;
+        self.gen(Instruction::i_type(Opcode::ANDIU, r5, r5, high))?;
+
+        // Merge jump locations
+        self.gen(Instruction::xalur(SubOpXalu::OR, DpCntl::Word, r4, r4, r5))?;
+
+        // Jump
+        self.gen(Instruction::xj(r4))?;
+
+        Ok(())
+    }
+
+    pub fn gen_call(&mut self, sym: Sym) -> Result<(), DynAsmError> {
+        let  r4 = "R4".try_into()?;
+
+        let ret_addr = self.new_sym();
+        self.gen_load_symbol(r4, ret_addr)?;
+
+        self.gen(Instruction::xpush(Size::Bits32, r4))?;
+        self.gen_jump(sym)?;
+
+        self.set_sym_here(ret_addr)?;
+        Ok(())
+    }
+
+    pub fn gen_ret(&mut self) -> Result<(), DynAsmError> {
+        let  r4 = "R4".try_into()?;
+        self.gen(Instruction::xpop(Size::Bits32, r4))?;
+        self.gen(Instruction::xj(r4))?;
         Ok(())
     }
 

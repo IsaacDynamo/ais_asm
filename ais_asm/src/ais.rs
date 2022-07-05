@@ -624,7 +624,11 @@ impl Instruction {
             .ok_or_else(|| AisError::MissingConstant(self.clone()))?;
 
         let bits = match c {
-            Const::Number(0) => 0,
+            Const::Number(0) => 0b00000,
+            Const::Number(1) => 0b00001,
+
+            Const::Number(5) => 0b01111,
+
             Const::Raw(x) => x.into(),
             _ => todo!(),
         };
