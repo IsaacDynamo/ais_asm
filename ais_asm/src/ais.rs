@@ -79,51 +79,74 @@ pub enum AisError {
     UnknownOpcode(u32),
     UnknownOffset(u8),
     UnknownConst(u8),
+
+    Decode(Field),
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Field {
+    Const,
+    Offset,
+    RS,
+    RT,
+    RD,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Register(u8);
+pub struct Register(pub u8);
+
+impl Register {
+    pub const R0: Self = Self(0);
+
+    pub const R4: Self = Self(4);
+    pub const R5: Self = Self(5);
+    pub const R6: Self = Self(6);
+    pub const R7: Self = Self(7);
+
+    pub const CS: Self = Self(9);
+    pub const SS: Self = Self(10);
+    pub const DS: Self = Self(11);
+    pub const FS: Self = Self(12);
+    pub const GS: Self = Self(13);
+
+    pub const EAX: Self = Self(16);
+    pub const ECX: Self = Self(17);
+    pub const EDX: Self = Self(18);
+    pub const EBX: Self = Self(19);
+    pub const ESP: Self = Self(20);
+    pub const EBP: Self = Self(21);
+    pub const ESI: Self = Self(22);
+    pub const EDI: Self = Self(23);
+}
 
 impl TryFrom<u8> for Register {
-    type Error = AisError;
+    type Error = ();
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            x if x > 31 => Err(AisError::InvalidRegisterIndex(x)),
-            x => Ok(Self(x)),
+            x if x <= 31 => Ok(Self(x)),
+            _ => Err(()),
         }
     }
 }
 
-impl TryFrom<&str> for Register {
-    type Error = AisError;
+impl TryInto<u8> for Register {
+    type Error = ();
 
-    fn try_from(x: &str) -> Result<Self, Self::Error> {
-        match x {
-            "R0" => Ok(Self(0)),
-
-            "R4" => Ok(Self(4)),
-            "R5" => Ok(Self(5)),
-            "R6" => Ok(Self(6)),
-            "R7" => Ok(Self(7)),
-
-            "ES" => Ok(Self(8)),
-            "CS" => Ok(Self(9)),
-            "SS" => Ok(Self(10)),
-            "DS" => Ok(Self(11)),
-            "FS" => Ok(Self(12)),
-            "GS" => Ok(Self(13)),
-
-            "EAX" => Ok(Self(16)),
-            "ECX" => Ok(Self(17)),
-            "EDX" => Ok(Self(18)),
-            "EBX" => Ok(Self(19)),
-            "ESP" => Ok(Self(20)),
-            "EBP" => Ok(Self(21)),
-            "ESI" => Ok(Self(22)),
-            "EDI" => Ok(Self(23)),
-            _ => Err(AisError::InvalidRegisterName(x.to_string())),
+    fn try_into(self) -> Result<u8, Self::Error> {
+        match self {
+            Register(x) if x <= 31 => Ok(x),
+            _ => Err(()),
         }
+    }
+}
+
+#[test]
+fn register_from_into_identity() {
+    for i in 0..32u8 {
+        let reg = Register::try_from(i).unwrap();
+        let j: u8 = reg.try_into().unwrap();
+        assert_eq!(j, i)
     }
 }
 
@@ -135,14 +158,42 @@ pub enum Const {
 }
 
 impl TryFrom<u8> for Const {
-    type Error = AisError;
+    type Error = ();
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0b00000 => Ok(Self::Number(0)),
-            x if x < 32 => Ok(Self::Raw(x)),
-            _ => Err(AisError::UnknownConst(value)),
-        }
+        Ok(match value {
+            0b00000 => Self::Number(0),
+            x if x < 32 => Self::Raw(x),
+            _ => return Err(()),
+        })
+    }
+}
+
+impl TryInto<u8> for Const {
+    type Error = ();
+
+    fn try_into(self) -> Result<u8, Self::Error> {
+        Ok(match self {
+            Const::Number(0) => 0b00000,
+            Const::Number(1) => 0b00001,
+
+            Const::Number(5) => 0b01111,
+
+            Const::Number(6) => 0b10010,
+
+            Const::Raw(x) if x <= 0b11111 => x,
+            Const::Raw(_) => return Err(()),
+            _ => todo!(),
+        })
+    }
+}
+
+#[test]
+fn const_from_into_identity() {
+    for i in 0..32u8 {
+        let reg = Const::try_from(i).unwrap();
+        let j: u8 = reg.try_into().unwrap();
+        assert_eq!(j, i)
     }
 }
 
@@ -158,42 +209,94 @@ pub enum Offset {
     DF,
     DFOS,
     DISP,
+    Raw(u8),
 }
 
 impl TryFrom<u8> for Offset {
-    type Error = AisError;
+    type Error = ();
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0b00000 => Ok(Self::Number(0)),
-            0b00001 => Ok(Self::Number(1)),
-            0b00010 => Ok(Self::Number(2)),
-            0b00011 => Ok(Self::Number(4)),
-            0b00100 => Ok(Self::Number(8)),
-            0b00101 => Ok(Self::Number(16)),
-            0b00110 => Ok(Self::Number(24)),
-            0b00111 => Ok(Self::Number(32)),
-            0b01000 => Ok(Self::Number(10)),
-            0b01001 => Ok(Self::Number(-1)),
-            0b01010 => Ok(Self::Number(-2)),
-            0b01011 => Ok(Self::Number(-4)),
-            0b01100 => Ok(Self::Number(-8)),
+        Ok(match value {
+            0b00000 => Self::Number(0),
+            0b00001 => Self::Number(1),
+            0b00010 => Self::Number(2),
+            0b00011 => Self::Number(4),
+            0b00100 => Self::Number(8),
+            0b00101 => Self::Number(16),
+            0b00110 => Self::Number(24),
+            0b00111 => Self::Number(32),
+            0b01000 => Self::Number(10),
+            0b01001 => Self::Number(-1),
+            0b01010 => Self::Number(-2),
+            0b01011 => Self::Number(-4),
+            0b01100 => Self::Number(-8),
 
-            0b01111 => Ok(Self::Number(5)),
-            0b10000 => Ok(Self::OS),
-            0b10001 => Ok(Self::PDOS),
+            0b01111 => Self::Number(5),
+            0b10000 => Self::OS,
+            0b10001 => Self::PDOS,
 
-            0b11000 => Ok(Self::MOS),
-            0b11001 => Ok(Self::MGS),
-            0b11010 => Ok(Self::MDOS),
+            0b11000 => Self::MOS,
+            0b11001 => Self::MGS,
+            0b11010 => Self::MDOS,
 
-            0b11100 => Ok(Self::DF),
-            0b11101 => Ok(Self::DFOS),
+            0b11100 => Self::DF,
+            0b11101 => Self::DFOS,
 
-            0b11111 => Ok(Self::DISP),
+            0b11111 => Self::DISP,
 
-            _ => Err(AisError::UnknownOffset(value)),
-        }
+            x if x <= 0b11111 => Self::Raw(x),
+            _ => return Err(()),
+        })
+    }
+}
+
+impl TryInto<u8> for Offset {
+    type Error = ();
+
+    fn try_into(self) -> Result<u8, Self::Error> {
+        let bits = match self {
+            Offset::Number(0) => 0b00000,
+            Offset::Number(1) => 0b00001,
+            Offset::Number(2) => 0b00010,
+            Offset::Number(4) => 0b00011,
+            Offset::Number(8) => 0b00100,
+            Offset::Number(16) => 0b00101,
+            Offset::Number(24) => 0b00110,
+            Offset::Number(32) => 0b00111,
+            Offset::Number(10) => 0b01000,
+            Offset::Number(-1) => 0b01001,
+            Offset::Number(-2) => 0b01010,
+            Offset::Number(-4) => 0b01011,
+            Offset::Number(-8) => 0b01100,
+
+            Offset::Number(5) => 0b01111,
+            Offset::OS => 0b10000,
+            Offset::PDOS => 0b10001,
+
+            Offset::MOS => 0b11000,
+            Offset::MGS => 0b11001,
+            Offset::MDOS => 0b11010,
+
+            Offset::DF => 0b11100,
+            Offset::DFOS => 0b11101,
+
+            Offset::DISP => 0b11111,
+
+            Offset::Raw(x) if x <= 0b11111 => x,
+
+            _ => return Err(()),
+        };
+
+        Ok(bits)
+    }
+}
+
+#[test]
+fn offset_from_into_identity() {
+    for i in 0..32u8 {
+        let reg = Offset::try_from(i).unwrap();
+        let j: u8 = reg.try_into().unwrap();
+        assert_eq!(j, i)
     }
 }
 
@@ -292,7 +395,6 @@ pub enum DpCntl {
 #[derive(Debug, Copy, Clone, PartialEq, FromPrimitive)]
 pub enum Opcode {
     XJ = 0o06,
-    XJ7 = 0o00, // TODO remove
 
     // I type
     ORIU = 0o10,
@@ -460,12 +562,8 @@ impl Instruction {
     }
 
     pub fn xpush(size: Size, reg: Register) -> Self {
-        let mut instr = Instruction::xls_type(
-            Opcode::XPUSH,
-            reg,
-            "ESP".try_into().unwrap(),
-            Offset::Number(-4),
-        );
+        let mut instr =
+            Instruction::xls_type(Opcode::XPUSH, reg, Register::ESP, Offset::Number(-4));
         instr.function = Some(Function::Xls(
             SubOp::Raw(0),
             AddrSize::Bits32,
@@ -476,12 +574,7 @@ impl Instruction {
     }
 
     pub fn xpop(size: Size, reg: Register) -> Self {
-        let mut instr = Instruction::xls_type(
-            Opcode::XPOP,
-            reg,
-            "ESP".try_into().unwrap(),
-            Offset::Number(4),
-        );
+        let mut instr = Instruction::xls_type(Opcode::XPOP, reg, Register::ESP, Offset::Number(4));
         instr.function = Some(Function::Xls(
             SubOp::Raw(0),
             AddrSize::Bits32,
@@ -494,8 +587,8 @@ impl Instruction {
     pub fn xpuship(size: Size) -> Self {
         let mut instr = Instruction::xls_type(
             Opcode::XPUSHIP,
-            0.try_into().unwrap(),
-            "ESP".try_into().unwrap(),
+            Register::R0,
+            Register::ESP,
             Offset::Number(-4),
         );
         instr.function = Some(Function::Xls(
@@ -641,39 +734,10 @@ impl Instruction {
             .offset
             .ok_or_else(|| AisError::MissingOffset(self.clone()))?;
 
-        let offset_bits = match offset {
-            Offset::Number(0) => 0b00000,
-            Offset::Number(1) => 0b00001,
-            Offset::Number(2) => 0b00010,
-            Offset::Number(4) => 0b00011,
-            Offset::Number(8) => 0b00100,
-            Offset::Number(16) => 0b00101,
-            Offset::Number(24) => 0b00110,
-            Offset::Number(32) => 0b00111,
-            Offset::Number(10) => 0b01000,
-            Offset::Number(-1) => 0b01001,
-            Offset::Number(-2) => 0b01010,
-            Offset::Number(-4) => 0b01011,
-            Offset::Number(-8) => 0b01100,
+        let x: u8 = offset.try_into().ok().ok_or(AisError::UnsupportedOffset(offset))?;
+        let x: u32 = x.into();
 
-            Offset::Number(5) => 0b01111,
-
-            Offset::OS => 0b10000,
-            Offset::PDOS => 0b10001,
-
-            Offset::MOS => 0b11000,
-            Offset::MGS => 0b11001,
-            Offset::MDOS => 0b11010,
-
-            Offset::DF => 0b11100,
-            Offset::DFOS => 0b11101,
-
-            Offset::DISP => 0b11111,
-
-            Offset::Number(_) => return Err(AisError::UnsupportedOffset(offset)),
-        };
-
-        Ok(offset_bits << 21)
+        Ok(x << 21)
     }
 
     fn encode_function(&self) -> Result<u32, AisError> {
@@ -747,7 +811,7 @@ impl Instruction {
             let function = self.encode_function()?;
 
             op | rs | c | rd | function
-        } else if self.opcode == Opcode::XJ || self.opcode == Opcode::XJ7 {
+        } else if self.opcode == Opcode::XJ {
             let op = self.encode_opcode()?;
             let rt = self.encode_rt()?;
             let function = self.encode_function()?;
@@ -765,9 +829,9 @@ impl Instruction {
             op | rs | rt | rd | function
         } else if self.is_xls_type() || self.opcode == Opcode::XLEAD {
             let op = self.encode_opcode()?;
-            let rs = Self::encode_register(&self.rs, || AisError::MissingRs(self.clone()))? << 11;
-            let base = self.encode_rt()?;
             let offset = self.encode_offset()?;
+            let base = self.encode_rt()?;
+            let rs = Self::encode_register(&self.rs, || AisError::MissingRs(self.clone()))? << 11;
             let function = self.encode_function()?;
 
             //assert!(function == 0b00_1_00_1010_1_0);
@@ -804,33 +868,57 @@ impl Instruction {
         let opcode = decode_opcode(word)?;
         let mut instr = Instruction::new(opcode);
 
-        let rs_bits: u8 = bits(word, 25..21).try_into().unwrap();
+        //let rs_bits: u8 = bits(word, 25..21);
         let rt_bits: u8 = bits(word, 20..16).try_into().unwrap();
-        let rd_bits: u8 = bits(word, 15..11).try_into().unwrap();
+        //let rd_bits: u8 = bits(word, 15..11);
         let function_bits: u16 = bits(word, 10..0).try_into().unwrap();
         let imm_bits = bits(word, 15..0).try_into().unwrap();
 
+        fn reg(bits: u32, field: Field) -> Result<Register, AisError> {
+            let x: u8 = bits.try_into().map_err(|_| AisError::Decode(field))?;
+            x.try_into().map_err(|_| AisError::Decode(field))
+        }
+
+        fn rs(word: u32) -> Result<Option<Register>, AisError> {
+            let bits = bits(word, 25..21);
+            reg(bits, Field::RS).map(Some)
+        }
+
+        fn rt(word: u32) -> Result<Option<Register>, AisError> {
+            let bits = bits(word, 20..16);
+            reg(bits, Field::RT).map(Some)
+        }
+
+        fn rd(word: u32) -> Result<Option<Register>, AisError> {
+            let bits = bits(word, 15..11);
+            reg(bits, Field::RD).map(Some)
+        }
+
         if instr.is_i_type() {
-            instr.rs = Some(rs_bits.try_into()?);
-            instr.rt = Some(rt_bits.try_into()?);
+            instr.rs = rs(word)?;
+            instr.rt = rt(word)?;
             instr.imm = Some(imm_bits);
         } else if instr.is_xalu_type() {
             instr.function = Some(decode_xalu_function(word)?);
-            instr.rs = Some(rs_bits.try_into()?);
-            instr.rt = Some(rt_bits.try_into()?);
-            instr.rd = Some(rd_bits.try_into()?);
+            instr.rs = rs(word)?;
+            instr.rt = rt(word)?;
+            instr.rd = rd(word)?;
         } else if instr.is_xalui_type() {
             instr.function = Some(decode_xalu_function(word)?);
-            instr.rs = Some(rs_bits.try_into()?);
-            instr.rd = Some(rd_bits.try_into()?);
-            instr.constant = Some(rt_bits.try_into()?);
-        } else if instr.opcode == Opcode::XJ || instr.opcode == Opcode::XJ7 {
-            instr.rt = Some(rt_bits.try_into()?);
+            instr.rs = rs(word)?;
+            instr.rd = rd(word)?;
+            instr.constant = bits(word, 20..16)
+                .try_into().ok()
+                .and_then(|x: u8| x.try_into().ok())
+                .ok_or(AisError::Decode(Field::Const))
+                .map(Some)?;
+        } else if instr.opcode == Opcode::XJ {
+            instr.rt = rt(word)?;
             instr.function = Some(decode_xj_function(word)?);
         } else if instr.opcode == Opcode::XMISC {
-            instr.rs = Some(rs_bits.try_into()?);
-            instr.rt = Some(rt_bits.try_into()?);
-            instr.rd = Some(rd_bits.try_into()?);
+            instr.rs = rs(word)?;
+            instr.rt = rt(word)?;
+            instr.rd = rd(word)?;
 
             let subfunc =
                 FromPrimitive::from_u32(bits(word, 10..6)).ok_or(AisError::DecodeIssue)?;
@@ -839,12 +927,12 @@ impl Instruction {
             instr.function = Some(Function::Xmisc(subfunc, other_bits));
         } else if instr.is_xls_type() || instr.opcode == Opcode::XLEAD {
             // The XLS type has an other order of fields
-            let xls_rs_bits = rd_bits;
-            let xls_offset_bits = rs_bits;
+            let xls_rs_bits = bits(word, 15..11).try_into().unwrap();
 
-            instr.rs = Some(xls_rs_bits.try_into()?);
-            instr.rt = Some(rt_bits.try_into()?);
-            instr.offset = Some(xls_offset_bits.try_into()?);
+
+            instr.rs = Some(reg(xls_rs_bits, Field::RS)?);
+            instr.rt = rt(word)?;
+            instr.offset = bits(word, 25..21).try_into().ok().and_then(|x: u8| x.try_into().ok()).ok_or(AisError::Decode(Field::Offset)).map(Some)?;
             instr.function = Some(decode_function(instr.opcode, word)?);
         } else {
             return Err(AisError::DecodeError(bytes.into()));
@@ -853,7 +941,7 @@ impl Instruction {
         let code = instr.encode32()?;
         instr.mask = word & !code;
 
-        assert!(word == code | instr.mask);
+        assert!(word == code | instr.mask, "{:?} {:08X} {:08X} {:08X}", instr, word, code, instr.mask);
 
         Ok((instr, 6))
     }

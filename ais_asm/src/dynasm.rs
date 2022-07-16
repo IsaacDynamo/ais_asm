@@ -193,7 +193,7 @@ impl DynAsm {
                 self.gen(Instruction::i_type(
                     Opcode::ORI,
                     dst.clone(),
-                    0.try_into()?,
+                    Register::R0,
                     imm as u16,
                 ))?;
                 self.gen(Instruction::i_type(
@@ -206,13 +206,13 @@ impl DynAsm {
             (false, true) => self.gen(Instruction::i_type(
                 Opcode::ORIU,
                 dst,
-                0.try_into()?,
+                Register::R0,
                 (imm >> 16) as u16,
             ))?,
             (true, _) => self.gen(Instruction::i_type(
                 Opcode::ORI,
                 dst,
-                0.try_into()?,
+                Register::R0,
                 imm as u16,
             ))?,
         }
@@ -225,7 +225,7 @@ impl DynAsm {
         self.gen(Instruction::i_type(
             Opcode::ORI,
             dst.clone(),
-            0.try_into()?,
+            Register::R0,
             low,
         ))?;
 
@@ -234,15 +234,15 @@ impl DynAsm {
     }
 
     pub fn gen_jump(&mut self, sym: Sym) -> Result<(), DynAsmError> {
-        self.gen_load_symbol("R4".try_into()?, sym)?;
-        self.gen(Instruction::xj("R4".try_into()?))?;
+        self.gen_load_symbol(Register::R4, sym)?;
+        self.gen(Instruction::xj(Register::R4))?;
         Ok(())
     }
 
     pub fn gen_cond_jump(&mut self, cond: Register, t: Sym, f: Sym) -> Result<(), DynAsmError> {
-        let r0 = "R0".try_into()?;
-        let r4 = "R4".try_into()?;
-        let r5 = "R5".try_into()?;
+        let r0 = Register::R0;
+        let r4 = Register::R4;
+        let r5 = Register::R5;
 
         // AND condition with one to make sure its 0 or 1
         self.gen(Instruction::xaluir(
@@ -287,7 +287,7 @@ impl DynAsm {
     }
 
     pub fn gen_call(&mut self, sym: Sym) -> Result<(), DynAsmError> {
-        let r4 = "R4".try_into()?;
+        let r4 = Register::R4;
         self.gen_load_symbol(r4, sym)?;
         self.gen(Instruction::xpuship(Size::Bits32))?;
         self.gen(Instruction::xj(r4))?;
@@ -295,7 +295,7 @@ impl DynAsm {
     }
 
     pub fn gen_ret(&mut self) -> Result<(), DynAsmError> {
-        let r4 = "R4".try_into()?;
+        let r4 = Register::R4;
         self.gen(Instruction::xpop(Size::Bits32, r4))?;
         self.gen(Instruction::xaluir(
             SubOpXalu::ADD,

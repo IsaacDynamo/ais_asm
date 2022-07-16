@@ -36,8 +36,8 @@ impl From<std::io::Error> for TopError {
 }
 
 fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
 
     // Clear result register
     asm.gen_load(eax, 0x0)?;
@@ -47,7 +47,7 @@ fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
         // forward declare return label
         let ret = asm.new_sym();
         // Load return register
-        asm.gen_load_symbol("EBX".try_into()?, ret)?;
+        asm.gen_load_symbol(Register::EBX, ret)?;
         // Jump to the function
         asm.gen_jump(function)?;
         // Resolve retunr label to be just after the jump
@@ -57,7 +57,7 @@ fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
 
     fn pseudo_ret(asm: &mut DynAsm) -> Result<(), TopError> {
         // Jump to the return register
-        asm.gen(Instruction::xj("EBX".try_into()?))?;
+        asm.gen(Instruction::xj(Register::EBX))?;
         Ok(())
     }
 
@@ -87,13 +87,13 @@ fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
     // Function that will push a byte in the result
     // EAX = EAX << 4 | EDX
     asm.set_sym_here(push)?;
-    asm.gen_load("R4".try_into()?, 4)?;
+    asm.gen_load(Register::R4, 4)?;
     asm.gen(Instruction::xalur(
         SubOpXalu::SHL,
         DpCntl::Word,
         eax,
         eax,
-        "R4".try_into()?,
+        Register::R4,
     ))?;
     asm.gen(Instruction::xalur(
         SubOpXalu::OR,
@@ -111,8 +111,8 @@ fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn tests(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
 
     // asm.gen_load(eax, 33)?;
     // asm.gen_load(edx, 0x3F8)?;
@@ -137,7 +137,7 @@ fn tests(asm: &mut DynAsm) -> Result<(), TopError> {
 
     asm.gen(Instruction::xlead(
         eax,
-        0.try_into()?,
+        Register::R0,
         ais::Offset::MDOS,
         ais::AddrSize::Bits32,
         ais::Size::Bits32,
@@ -147,12 +147,12 @@ fn tests(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn dump_cp2_regs(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
-        asm.gen(Instruction::cfc2(eax, i.try_into()?))?;
+        asm.gen(Instruction::cfc2(eax, Register(i)))?;
 
         let mut push = Instruction::xpush(Size::Bits32, eax);
         push.rt = Some(edx);
@@ -164,12 +164,12 @@ fn dump_cp2_regs(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn dump_regs(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
-        let mut push = Instruction::xpush(Size::Bits32, i.try_into()?);
+        let mut push = Instruction::xpush(Size::Bits32, Register(i));
         push.rt = Some(edx);
         push.offset = Some(Offset::Number(4));
         asm.gen(push)?;
@@ -179,9 +179,9 @@ fn dump_regs(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn dump_offset(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
-    let r0: Register = "R0".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
+    let r0: Register = Register::R0;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
@@ -206,9 +206,9 @@ fn dump_offset(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn dump_constant(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
-    let r0: Register = "R0".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
+    let r0: Register = Register::R0;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
@@ -227,10 +227,10 @@ fn dump_constant(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn test_eflags(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
-    let r4: Register = "R4".try_into()?;
-    let r5: Register = "R5".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
+    let r4: Register = Register::R4;
+    let r5: Register = Register::R5;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
 
@@ -293,7 +293,7 @@ fn test_eflags(asm: &mut DynAsm) -> Result<(), TopError> {
             r5,
         ))?;
 
-        asm.gen(Instruction::cfc2(eax, 31.try_into()?))?;
+        asm.gen(Instruction::cfc2(eax, Register(31)))?;
 
         let mut push = Instruction::xpush(Size::Bits32, eax);
         push.rt = Some(edx);
@@ -305,23 +305,23 @@ fn test_eflags(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn test_xj(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
-    let ecx: Register = "ECX".try_into()?;
-    let r0: Register = "R0".try_into()?;
-    let r4: Register = "R4".try_into()?;
-    let r5: Register = "R5".try_into()?;
-    let r6: Register = "R6".try_into()?;
-    let r7: Register = "R7".try_into()?;
+    let eax: Register = Register::EAX;
+    let edx: Register = Register::EDX;
+    let ecx: Register = Register::ECX;
+    let r0: Register = Register::R0;
+    let r4: Register = Register::R4;
+    let r5: Register = Register::R5;
+    let r6: Register = Register::R6;
+    let r7: Register = Register::R7;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
 
     let comb = [
-        (0, 0),                     // 0x46  // ZF
+        (0, 0),                     // 0x46 ZF
         (1, 0),                     // 0x02
-        (0x8000_0000, 0),           // 0x86   SF
-        (0xFFFF_FFFF, 0x8000_0001), // 0x97  SF, CF
-        (0xFFFF_FFFF, 1),           // 0x57   ZF, CF
+        (0x8000_0000, 0),           // 0x86 SF
+        (0xFFFF_FFFF, 0x8000_0001), // 0x97 SF, CF
+        (0xFFFF_FFFF, 1),           // 0x57 ZF, CF
     ];
 
     //for j in 0..8 {
@@ -377,8 +377,8 @@ fn test_xj(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn test_cond_jump(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let ecx: Register = "ECX".try_into()?;
+    let eax: Register = Register::EAX;
+    let ecx: Register = Register::ECX;
 
     asm.gen_load(eax, 0)?;
     asm.gen_load(ecx, 0b111111)?;
@@ -413,8 +413,8 @@ fn test_cond_jump(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn test_call_ret(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let ecx: Register = "ECX".try_into()?;
+    let eax: Register = Register::EAX;
+    let ecx: Register = Register::ECX;
 
     let start = asm.new_sym();
     asm.gen_jump(start)?;
@@ -444,9 +444,9 @@ fn test_call_ret(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn test_hello_world(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = "EAX".try_into()?;
-    let ecx: Register = "ECX".try_into()?;
-    let edx: Register = "EDX".try_into()?;
+    let eax: Register = Register::EAX;
+    let ecx: Register = Register::ECX;
+    let edx: Register = Register::EDX;
 
     let start = asm.new_sym();
     asm.gen_jump(start)?;
@@ -483,6 +483,33 @@ fn test_hello_world(asm: &mut DynAsm) -> Result<(), TopError> {
     Ok(())
 }
 
+fn test_timestamp(asm: &mut DynAsm) -> Result<(), TopError> {
+    let eax: Register = Register::EAX;
+    let ecx: Register = Register::ECX;
+    let edx: Register = Register::EDX;
+    let r0: Register = Register::R0;
+
+    asm.gen_load(edx, 0x50_0000 - 4)?;
+    for i in 0..16 {
+
+        asm.gen(Instruction::cfc2(eax, Register(19)))?;
+        asm.gen(Instruction::cfc2(ecx, Register(19)))?;
+
+        let mut push = Instruction::xpush(Size::Bits32, eax);
+        push.rt = Some(edx);
+        push.offset = Some(Offset::Number(4));
+        asm.gen(push)?;
+
+        let mut push = Instruction::xpush(Size::Bits32, ecx);
+        push.rt = Some(edx);
+        push.offset = Some(Offset::Number(4));
+        asm.gen(push)?;
+    }
+
+    Ok(())
+
+}
+
 fn main() -> Result<(), TopError> {
     let entry = Instruction::decode(&[0x62, 0x80, 0x19, 0x08, 0xE0, 0x83]);
     let exit = Instruction::decode(&[0x62, 0x80, 0x47, 0x00, 0x10, 0x18]);
@@ -500,14 +527,15 @@ fn main() -> Result<(), TopError> {
     // Add x86 to AIS transition header
     asm.gen_header();
 
-    //test_eflags(&mut asm)?;
-    //test_xj(&mut asm)?;
-    //dump_regs(&mut asm)?;
-    //dump_offset(&mut asm)?;
-    //dump_constant(&mut asm)?;
-    //test_cond_jump(&mut asm)?;
-    //test_call_ret(&mut asm)?;
+    test_eflags(&mut asm)?;
+    test_xj(&mut asm)?;
+    dump_regs(&mut asm)?;
+    dump_offset(&mut asm)?;
+    dump_constant(&mut asm)?;
+    test_cond_jump(&mut asm)?;
+    test_call_ret(&mut asm)?;
     test_hello_world(&mut asm)?;
+    test_timestamp(&mut asm)?;
 
     // Append footer and we are done. This is just a return, so it will return from the payload back into the kernel
     asm.gen_footer();
