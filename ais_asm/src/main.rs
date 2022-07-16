@@ -1,10 +1,15 @@
 mod ais;
+mod asm;
+mod decode;
 mod dynasm;
+mod encode;
 
 use crate::ais::{
     AisError, Const, DpCntl, Function, Instruction, Offset, Opcode, Register, Size, SubOpXalu,
 };
 use crate::dynasm::{DynAsm, DynAsmError, Sym};
+
+use crate::decode::decode;
 
 use std::fs::File;
 use std::io::Write;
@@ -57,7 +62,7 @@ fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
 
     fn pseudo_ret(asm: &mut DynAsm) -> Result<(), TopError> {
         // Jump to the return register
-        asm.gen(Instruction::xj(Register::EBX))?;
+        asm.gen(asm::j(Register::EBX))?;
         Ok(())
     }
 
@@ -88,20 +93,8 @@ fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
     // EAX = EAX << 4 | EDX
     asm.set_sym_here(push)?;
     asm.gen_load(Register::R4, 4)?;
-    asm.gen(Instruction::xalur(
-        SubOpXalu::SHL,
-        DpCntl::Word,
-        eax,
-        eax,
-        Register::R4,
-    ))?;
-    asm.gen(Instruction::xalur(
-        SubOpXalu::OR,
-        DpCntl::Word,
-        eax,
-        eax,
-        edx,
-    ))?;
+    asm.gen(asm::shl(eax, eax, Register::R4))?;
+    asm.gen(asm::or(eax, eax, edx))?;
     pseudo_ret(asm)?;
 
     // The end is here
@@ -116,26 +109,26 @@ fn tests(asm: &mut DynAsm) -> Result<(), TopError> {
 
     // asm.gen_load(eax, 33)?;
     // asm.gen_load(edx, 0x3F8)?;
-    // asm.gen(Instruction::xiow(ais::Size::Bits8, edx, eax))?;
+    // asm.gen(asm::xiow(ais::Size::Bits8, edx, eax))?;
 
     // asm.gen_load(eax, 33)?;
     // asm.gen_load(edx, 0x3F8 + 5)?;
-    // asm.gen(Instruction::xior(ais::Size::Bits8, edx, eax))?;
+    // asm.gen(asm::xior(ais::Size::Bits8, edx, eax))?;
 
     // push & pop
     // asm.gen_load(edx, 0xF00BAA)?;
-    // asm.gen(Instruction::xpush(ais::Size::Bits32, edx))?;
-    // asm.gen(Instruction::xpop(ais::Size::Bits32, eax))?;
+    // asm.gen(asm::xpush(ais::Size::Bits32, edx))?;
+    // asm.gen(asm::xpop(ais::Size::Bits32, eax))?;
 
     // pop ret addr
-    //asm.gen(Instruction::xpop(ais::Size::Bits32, eax))?;
-    //asm.gen(Instruction::xpush(ais::Size::Bits32, eax))?;
+    //asm.gen(asm::xpop(ais::Size::Bits32, eax))?;
+    //asm.gen(asm::xpush(ais::Size::Bits32, eax))?;
 
     // push ip
-    // asm.gen(Instruction::xpuship(ais::Size::Bits32))?;
-    // asm.gen(Instruction::xpop(ais::Size::Bits32, eax))?;
+    // asm.gen(asm::xpuship(ais::Size::Bits32))?;
+    // asm.gen(asm::xpop(ais::Size::Bits32, eax))?;
 
-    asm.gen(Instruction::xlead(
+    asm.gen(asm::lead(
         eax,
         Register::R0,
         ais::Offset::MDOS,
@@ -152,12 +145,9 @@ fn dump_cp2_regs(asm: &mut DynAsm) -> Result<(), TopError> {
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
-        asm.gen(Instruction::cfc2(eax, Register(i)))?;
+        asm.gen(asm::cfc2(eax, Register(i)))?;
 
-        let mut push = Instruction::xpush(Size::Bits32, eax);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
     }
 
     Ok(())
@@ -169,10 +159,7 @@ fn dump_regs(asm: &mut DynAsm) -> Result<(), TopError> {
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
-        let mut push = Instruction::xpush(Size::Bits32, Register(i));
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::push(Size::Bits32, Register(i), edx, Offset::Number(4)))?;
     }
 
     Ok(())
@@ -185,7 +172,7 @@ fn dump_offset(asm: &mut DynAsm) -> Result<(), TopError> {
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
-        let mut instr = Instruction::xlead(
+        let mut instr = asm::lead(
             eax,
             r0,
             Offset::Number(0),
@@ -195,11 +182,7 @@ fn dump_offset(asm: &mut DynAsm) -> Result<(), TopError> {
 
         instr.mask = i << 21;
         asm.gen(instr)?;
-
-        let mut push = Instruction::xpush(Size::Bits32, eax);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
     }
 
     Ok(())
@@ -212,15 +195,8 @@ fn dump_constant(asm: &mut DynAsm) -> Result<(), TopError> {
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
-        let mut instr =
-            Instruction::xaluir(SubOpXalu::ADD, DpCntl::Word, eax, r0, ais::Const::Raw(i));
-
-        asm.gen(instr)?;
-
-        let mut push = Instruction::xpush(Size::Bits32, eax);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::addi(eax, r0, Const::Raw(i)))?;
+        asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
     }
 
     Ok(())
@@ -244,61 +220,19 @@ fn test_eflags(asm: &mut DynAsm) -> Result<(), TopError> {
 
     for (a, b) in comb {
         asm.gen_load(r4, a)?;
-
-        let mut push = Instruction::xpush(Size::Bits32, r4);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::push(Size::Bits32, r4, edx, Offset::Number(4)))?;
 
         asm.gen_load(r5, b)?;
+        asm.gen(asm::push(Size::Bits32, r5, edx, Offset::Number(4)))?;
 
-        let mut push = Instruction::xpush(Size::Bits32, r5);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::add(eax, r4, r5))?;
+        asm.gen(asm::add(eax, r4, r5))?;
+        asm.gen(asm::add(eax, r4, r5))?;
+        asm.gen(asm::add(eax, r4, r5))?;
+        asm.gen(asm::add(eax, r4, r5))?;
 
-        asm.gen(Instruction::xalur(
-            SubOpXalu::ADD,
-            DpCntl::Word,
-            eax,
-            r4,
-            r5,
-        ))?;
-        asm.gen(Instruction::xalur(
-            SubOpXalu::ADD,
-            DpCntl::Word,
-            eax,
-            r4,
-            r5,
-        ))?;
-        asm.gen(Instruction::xalur(
-            SubOpXalu::ADD,
-            DpCntl::Word,
-            eax,
-            r4,
-            r5,
-        ))?;
-        asm.gen(Instruction::xalur(
-            SubOpXalu::ADD,
-            DpCntl::Word,
-            eax,
-            r4,
-            r5,
-        ))?;
-        asm.gen(Instruction::xalur(
-            SubOpXalu::ADD,
-            DpCntl::Word,
-            eax,
-            r4,
-            r5,
-        ))?;
-
-        asm.gen(Instruction::cfc2(eax, Register(31)))?;
-
-        let mut push = Instruction::xpush(Size::Bits32, eax);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::cfc2(eax, Register(31)))?;
+        asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
     }
 
     Ok(())
@@ -338,36 +272,27 @@ fn test_xj(asm: &mut DynAsm) -> Result<(), TopError> {
             let jmp = asm.new_sym();
             asm.gen_load_symbol(r4, jmp)?;
 
-            asm.gen(Instruction::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
+            asm.gen(asm::add(r5, r6, r7))?;
 
-            let mut xj = Instruction::xj(r4);
+            let mut xj = asm::j(r4);
             xj.opcode = Opcode::XJ;
             xj.mask = 6 << 11 | i << 2;
             asm.gen(xj)?;
-            asm.gen(Instruction::xalur(
-                SubOpXalu::OR,
-                DpCntl::Word,
-                eax,
-                eax,
-                ecx,
-            ))?;
+            asm.gen(asm::or(eax, eax, ecx))?;
             asm.set_sym_here(jmp)?;
         }
 
-        let mut push = Instruction::xpush(Size::Bits32, eax);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
 
-        // asm.gen(Instruction::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(Instruction::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(Instruction::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(Instruction::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(Instruction::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
+        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
+        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
+        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
+        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
+        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
 
-        // asm.gen(Instruction::cfc2(eax, 31.try_into()?))?;
+        // asm.gen(asm::cfc2(eax, 31.try_into()?))?;
 
-        // let mut push = Instruction::xpush(Size::Bits32, eax);
+        // let mut push = asm::xpush(Size::Bits32, eax);
         // push.rt = Some(edx);
         // push.offset = Some(Offset::Number(4));
         // asm.gen(push)?;
@@ -390,21 +315,9 @@ fn test_cond_jump(asm: &mut DynAsm) -> Result<(), TopError> {
     asm.gen_cond_jump(ecx, body, done)?;
     asm.set_sym_here(body)?;
 
-    asm.gen(Instruction::xaluir(
-        SubOpXalu::ADD,
-        DpCntl::Word,
-        eax,
-        eax,
-        Const::Number(1),
-    ))?;
+    asm.gen(asm::addi(eax, eax, Const::Number(1)))?;
 
-    asm.gen(Instruction::xaluir(
-        SubOpXalu::SHR,
-        DpCntl::Word,
-        ecx,
-        ecx,
-        Const::Number(1),
-    ))?;
+    asm.gen(asm::shri(ecx, ecx, Const::Number(1)))?;
 
     asm.gen_jump(looop)?;
     asm.set_sym_here(done)?;
@@ -420,13 +333,7 @@ fn test_call_ret(asm: &mut DynAsm) -> Result<(), TopError> {
     asm.gen_jump(start)?;
 
     let add = asm.new_sym_here();
-    asm.gen(Instruction::xalur(
-        SubOpXalu::ADD,
-        DpCntl::Word,
-        eax,
-        eax,
-        ecx,
-    ))?;
+    asm.gen(asm::add(eax, eax, ecx))?;
     asm.gen_ret()?;
 
     let inc = asm.new_sym_here();
@@ -454,22 +361,16 @@ fn test_hello_world(asm: &mut DynAsm) -> Result<(), TopError> {
     let putc = asm.new_sym_here();
 
     asm.gen_load(edx, 0x3F8 + 5)?;
-    asm.gen(Instruction::xior(ais::Size::Bits8L, edx, eax))?;
+    asm.gen(asm::ior(Size::Bits8L, edx, eax))?;
 
-    asm.gen(Instruction::xaluir(
-        SubOpXalu::SHR,
-        DpCntl::Word,
-        eax,
-        eax,
-        Const::Number(5),
-    ))?;
+    asm.gen(asm::shri(eax, eax, Const::Number(5)))?;
 
     let ready = asm.new_sym();
     asm.gen_cond_jump(eax, ready, putc)?;
     asm.set_sym_here(ready)?;
 
     asm.gen_load(edx, 0x3F8)?;
-    asm.gen(Instruction::xiow(ais::Size::Bits8L, edx, ecx))?;
+    asm.gen(asm::iow(Size::Bits8L, edx, ecx))?;
 
     asm.gen_ret()?;
 
@@ -487,37 +388,26 @@ fn test_timestamp(asm: &mut DynAsm) -> Result<(), TopError> {
     let eax: Register = Register::EAX;
     let ecx: Register = Register::ECX;
     let edx: Register = Register::EDX;
-    let r0: Register = Register::R0;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..16 {
-
-        asm.gen(Instruction::cfc2(eax, Register(19)))?;
-        asm.gen(Instruction::cfc2(ecx, Register(19)))?;
-
-        let mut push = Instruction::xpush(Size::Bits32, eax);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
-
-        let mut push = Instruction::xpush(Size::Bits32, ecx);
-        push.rt = Some(edx);
-        push.offset = Some(Offset::Number(4));
-        asm.gen(push)?;
+        asm.gen(asm::cfc2(eax, Register(19)))?;
+        asm.gen(asm::cfc2(ecx, Register(19)))?;
+        asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
+        asm.gen(asm::push(Size::Bits32, ecx, edx, Offset::Number(4)))?;
     }
 
     Ok(())
-
 }
 
 fn main() -> Result<(), TopError> {
-    let entry = Instruction::decode(&[0x62, 0x80, 0x19, 0x08, 0xE0, 0x83]);
-    let exit = Instruction::decode(&[0x62, 0x80, 0x47, 0x00, 0x10, 0x18]);
+    let entry = decode(&[0x62, 0x80, 0x19, 0x08, 0xE0, 0x83]);
+    let exit = decode(&[0x62, 0x80, 0x47, 0x00, 0x10, 0x18]);
     println!("entry: {:?}", entry);
     println!("exit:  {:?}", exit);
 
-    let eflags_load = Instruction::decode(&[0x62, 0x80, 0xC0, 0xFF, 0x07, 0xA0]);
-    let eflags_store = Instruction::decode(&[0x62, 0x80, 0x19, 0xF8, 0xE0, 0x80]);
+    let eflags_load = decode(&[0x62, 0x80, 0xC0, 0xFF, 0x07, 0xA0]);
+    let eflags_store = decode(&[0x62, 0x80, 0x19, 0xF8, 0xE0, 0x80]);
     println!("eflags_load:  {:?}", eflags_load);
     println!("eflags_store: {:?}", eflags_store);
 

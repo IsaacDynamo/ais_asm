@@ -87,9 +87,11 @@ pub enum AisError {
 pub enum Field {
     Const,
     Offset,
+    Immediate,
     RS,
     RT,
     RD,
+    Function,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -465,7 +467,7 @@ pub enum SubOpXalu {
     MFLOI = 0o37,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Instruction {
     // Formats
     //        31:26    25:21    20:16   15:11    10:0
@@ -501,157 +503,7 @@ impl Instruction {
         }
     }
 
-    pub fn i_type(opcode: Opcode, dst: Register, src: Register, imm: u16) -> Self {
-        let mut ret = Self::new(opcode);
-        ret.rs = Some(src);
-        ret.rt = Some(dst);
-        ret.imm = Some(imm);
-        ret
-    }
-
-    pub fn xalur(
-        subop: SubOpXalu,
-        dpcntl: DpCntl,
-        dst: Register,
-        src: Register,
-        extra: Register,
-    ) -> Self {
-        let mut ret = Self::new(Opcode::XALUR);
-        ret.rs = Some(src);
-        ret.rd = Some(dst);
-        ret.rt = Some(extra);
-        ret.function = Some(Function::Xalu(subop, dpcntl));
-        ret
-    }
-
-    pub fn xaluir(
-        subop: SubOpXalu,
-        dpcntl: DpCntl,
-        dst: Register,
-        src: Register,
-        constant: Const,
-    ) -> Self {
-        let mut ret = Self::new(Opcode::XALUIR);
-        ret.rs = Some(src);
-        ret.rd = Some(dst);
-        ret.constant = Some(constant);
-        ret.function = Some(Function::Xalu(subop, dpcntl));
-        ret
-    }
-
-    pub fn xiow(size: Size, port: Register, value: Register) -> Self {
-        let mut instr = Instruction::xls_type(Opcode::XIOW, value, port, Offset::Number(0));
-        instr.function = Some(Function::Xio(
-            SubOpXio::Norm,
-            AddrSize::Bits16,
-            size,
-            Sel::FLAT,
-        ));
-        instr
-    }
-
-    pub fn xior(size: Size, port: Register, value: Register) -> Self {
-        let mut instr = Instruction::xls_type(Opcode::XIOR, value, port, Offset::Number(0));
-        instr.function = Some(Function::Xio(
-            SubOpXio::Norm,
-            AddrSize::Bits16,
-            size,
-            Sel::FLAT,
-        ));
-        instr
-    }
-
-    pub fn xpush(size: Size, reg: Register) -> Self {
-        let mut instr =
-            Instruction::xls_type(Opcode::XPUSH, reg, Register::ESP, Offset::Number(-4));
-        instr.function = Some(Function::Xls(
-            SubOp::Raw(0),
-            AddrSize::Bits32,
-            size,
-            Sel::SS,
-        ));
-        instr
-    }
-
-    pub fn xpop(size: Size, reg: Register) -> Self {
-        let mut instr = Instruction::xls_type(Opcode::XPOP, reg, Register::ESP, Offset::Number(4));
-        instr.function = Some(Function::Xls(
-            SubOp::Raw(0),
-            AddrSize::Bits32,
-            size,
-            Sel::SS,
-        ));
-        instr
-    }
-
-    pub fn xpuship(size: Size) -> Self {
-        let mut instr = Instruction::xls_type(
-            Opcode::XPUSHIP,
-            Register::R0,
-            Register::ESP,
-            Offset::Number(-4),
-        );
-        instr.function = Some(Function::Xls(
-            SubOp::Raw(0),
-            AddrSize::Bits32,
-            size,
-            Sel::SS,
-        ));
-        instr
-    }
-
-    pub fn xlead(
-        dst: Register,
-        base: Register,
-        offset: Offset,
-        addr_size: AddrSize,
-        size: Size,
-    ) -> Self {
-        let mut instr = Instruction::xls_type(Opcode::XLEAD, dst, base, offset);
-        instr.function = Some(Function::Xlea(addr_size, size));
-        instr
-    }
-
-    pub fn xleai(
-        dst: Register,
-        base: Register,
-        index: Register,
-        addr_size: AddrSize,
-        size: Size,
-    ) -> Self {
-        let mut instr = Self::new(Opcode::XLEAI);
-        instr.rs = Some(dst);
-        instr.rt = Some(base);
-        instr.rd = Some(index);
-        instr.function = Some(Function::Xlea(addr_size, size));
-        instr
-    }
-
-    pub fn cfc2(dst: Register, src: Register) -> Self {
-        let mut instr = Self::new(Opcode::XMISC);
-        instr.rt = Some(dst);
-        instr.rd = Some(src);
-        instr.function = Some(Function::Xmisc(SubFunc::CFC2, 0));
-        instr
-    }
-
-    pub fn xj(base: Register) -> Self {
-        let mut ret = Self::new(Opcode::XJ);
-        ret.rt = Some(base);
-        ret.function = Some(Function::Xj(XjSize::Bits32, XjMode::AIS));
-        ret.mask = 0b0001 << 2;
-        ret
-    }
-
-    pub fn xls_type(opcode: Opcode, rs: Register, base: Register, offset: Offset) -> Self {
-        let mut ret = Self::new(opcode);
-        ret.rs = Some(rs);
-        ret.rt = Some(base);
-        ret.offset = Some(offset);
-        ret
-    }
-
-    fn is_i_type(&self) -> bool {
+    pub fn is_i_type(&self) -> bool {
         matches!(
             self.opcode,
             Opcode::ORIU
@@ -665,356 +517,26 @@ impl Instruction {
         )
     }
 
-    fn is_xalu_type(&self) -> bool {
+    pub fn is_xalu_type(&self) -> bool {
         matches!(self.opcode, Opcode::XALU | Opcode::XALUR)
     }
 
-    fn is_xalui_type(&self) -> bool {
+    pub fn is_xalui_type(&self) -> bool {
         matches!(self.opcode, Opcode::XALUI | Opcode::XALUIR)
     }
 
-    fn is_xls_type(&self) -> bool {
+    pub fn is_xls_type(&self) -> bool {
         matches!(
             self.opcode,
             Opcode::XIOR | Opcode::XIOW | Opcode::XPUSH | Opcode::XPOP | Opcode::XPUSHIP
         )
     }
 
-    fn encode_opcode(&self) -> Result<u32, AisError> {
-        Ok((self.opcode as u32) << 26)
-    }
-
-    fn encode_rs(&self) -> Result<u32, AisError> {
-        Self::encode_register(&self.rs, || AisError::MissingRs(self.clone())).map(|x| x << 21)
-    }
-
-    fn encode_rt(&self) -> Result<u32, AisError> {
-        Self::encode_register(&self.rt, || AisError::MissingRt(self.clone())).map(|x| x << 16)
-    }
-
-    fn encode_rd(&self) -> Result<u32, AisError> {
-        Self::encode_register(&self.rd, || AisError::MissingRd(self.clone())).map(|x| x << 11)
-    }
-
-    fn encode_register<F: FnOnce() -> AisError>(
-        register: &Option<Register>,
-        func: F,
-    ) -> Result<u32, AisError> {
-        register.as_ref().ok_or_else(func).map(|x| x.0.into())
-    }
-
-    fn encode_imm(&self) -> Result<u32, AisError> {
-        self.imm
-            .ok_or_else(|| AisError::MissingImmediate(self.clone()))
-            .map(|x| x.into())
-    }
-
-    fn encode_const(&self) -> Result<u32, AisError> {
-        let c = self
-            .constant
-            .ok_or_else(|| AisError::MissingConstant(self.clone()))?;
-
-        let bits = match c {
-            Const::Number(0) => 0b00000,
-            Const::Number(1) => 0b00001,
-
-            Const::Number(5) => 0b01111,
-
-            Const::Number(6) => 0b10010,
-
-            Const::Raw(x) => x.into(),
-            _ => todo!(),
-        };
-
-        Ok(bits << 16)
-    }
-
-    fn encode_offset(&self) -> Result<u32, AisError> {
-        let offset = self
-            .offset
-            .ok_or_else(|| AisError::MissingOffset(self.clone()))?;
-
-        let x: u8 = offset.try_into().ok().ok_or(AisError::UnsupportedOffset(offset))?;
-        let x: u32 = x.into();
-
-        Ok(x << 21)
-    }
-
-    fn encode_function(&self) -> Result<u32, AisError> {
-        let function = self
-            .function
-            .ok_or_else(|| AisError::MissingFunction(self.clone()))?;
-
-        let bits = match function {
-            Function::Xalu(sub_op, dp_cntl) => (sub_op as u32) | (dp_cntl as u32) << 5,
-            Function::Xio(sub_op, addr_size, size, sel) => {
-                let subop_bits = (sub_op as u32) << 9; // self.encode_sub_op_xls(sub_op)?;
-                subop_bits
-                    | (addr_size as u32 & 2) << 7
-                    | ((size as u32) & 0x6) << 5
-                    | (sel as u32) << 2
-                    | (size as u32 & 1) << 1
-                    | addr_size as u32 & 1
-            }
-            Function::Xj(size, mode) => (size as u32) << 6 | mode as u32,
-            Function::Xls(sub_op, addr_size, size, sel) => {
-                let subop_bits = 0; //(sub_op as u32) << 9; // self.encode_sub_op_xls(sub_op)?;
-                subop_bits
-                    | (addr_size as u32 & 2) << 7
-                    | ((size as u32) & 0x6) << 5
-                    | (sel as u32) << 2
-                    | (size as u32 & 1) << 1
-                    | addr_size as u32 & 1
-            }
-            Function::Xlea(addr_size, size) => {
-                let addr_size = addr_size as u32;
-                let size = size as u32;
-
-                bits(addr_size, 1..1) << 8
-                    | bits(size, 2..1) << 6
-                    | bits(size, 3..3) << 2
-                    | bits(size, 0..0) << 1
-                    | bits(addr_size, 0..0)
-            }
-            Function::Raw(x) => x.into(),
-            Function::Xmisc(sub_func, raw) => {
-                let subfunc_bits = sub_func as u32;
-
-                subfunc_bits << 6 | raw as u32
-            }
-        };
-
-        Ok(bits)
-    }
-
-    pub fn encode32(&self) -> Result<u32, AisError> {
-        let instr = if self.is_i_type() {
-            let op = self.encode_opcode()?;
-            let rs = self.encode_rs()?;
-            let rt = self.encode_rt()?;
-            let imm = self.encode_imm()?;
-
-            op | rs | rt | imm
-        } else if self.is_xalu_type() {
-            let op = self.encode_opcode()?;
-            let rs = self.encode_rs()?;
-            let rt = self.encode_rt()?;
-            let rd = self.encode_rd()?;
-            let function = self.encode_function()?;
-
-            op | rs | rt | rd | function
-        } else if self.is_xalui_type() {
-            let op = self.encode_opcode()?;
-            let rs = self.encode_rs()?;
-            let c = self.encode_const()?;
-            let rd = self.encode_rd()?;
-            let function = self.encode_function()?;
-
-            op | rs | c | rd | function
-        } else if self.opcode == Opcode::XJ {
-            let op = self.encode_opcode()?;
-            let rt = self.encode_rt()?;
-            let function = self.encode_function()?;
-
-            //assert!(function == 0b01_0001_00); // 32bit & stay in AIS mode
-
-            op | rt | function
-        } else if self.opcode == Opcode::XMISC {
-            let op = self.encode_opcode()?;
-            let rs = 0; //self.encode_rs()?;
-            let rt = self.encode_rt()?;
-            let rd = self.encode_rd()?;
-            let function = self.encode_function()?;
-
-            op | rs | rt | rd | function
-        } else if self.is_xls_type() || self.opcode == Opcode::XLEAD {
-            let op = self.encode_opcode()?;
-            let offset = self.encode_offset()?;
-            let base = self.encode_rt()?;
-            let rs = Self::encode_register(&self.rs, || AisError::MissingRs(self.clone()))? << 11;
-            let function = self.encode_function()?;
-
-            //assert!(function == 0b00_1_00_1010_1_0);
-
-            op | offset | base | rs | function
-        } else {
-            return Err(AisError::Unsupported(self.clone()));
-        };
-
-        Ok(instr | self.mask)
-    }
-
     pub fn encode(&self) -> Result<Vec<u8>, AisError> {
-        let instr = self.encode32()?;
-
-        let mut data = Vec::new();
-        data.extend_from_slice(&[0x62, 0x80]);
-        data.extend_from_slice(&instr.to_le_bytes());
-        Ok(data)
+        crate::encode::encode(&self)
     }
 
     pub fn decode(bytes: &[u8]) -> Result<(Instruction, usize), AisError> {
-        if bytes.len() < 6 {
-            return Err(AisError::DecodeError(bytes.into()));
-        }
-
-        let header = &bytes[0..2];
-        if header != [0x62, 0x80] {
-            return Err(AisError::DecodeError(bytes.into()));
-        }
-
-        let word = u32::from_le_bytes(bytes[2..6].try_into().unwrap());
-
-        let opcode = decode_opcode(word)?;
-        let mut instr = Instruction::new(opcode);
-
-        //let rs_bits: u8 = bits(word, 25..21);
-        let rt_bits: u8 = bits(word, 20..16).try_into().unwrap();
-        //let rd_bits: u8 = bits(word, 15..11);
-        let function_bits: u16 = bits(word, 10..0).try_into().unwrap();
-        let imm_bits = bits(word, 15..0).try_into().unwrap();
-
-        fn reg(bits: u32, field: Field) -> Result<Register, AisError> {
-            let x: u8 = bits.try_into().map_err(|_| AisError::Decode(field))?;
-            x.try_into().map_err(|_| AisError::Decode(field))
-        }
-
-        fn rs(word: u32) -> Result<Option<Register>, AisError> {
-            let bits = bits(word, 25..21);
-            reg(bits, Field::RS).map(Some)
-        }
-
-        fn rt(word: u32) -> Result<Option<Register>, AisError> {
-            let bits = bits(word, 20..16);
-            reg(bits, Field::RT).map(Some)
-        }
-
-        fn rd(word: u32) -> Result<Option<Register>, AisError> {
-            let bits = bits(word, 15..11);
-            reg(bits, Field::RD).map(Some)
-        }
-
-        if instr.is_i_type() {
-            instr.rs = rs(word)?;
-            instr.rt = rt(word)?;
-            instr.imm = Some(imm_bits);
-        } else if instr.is_xalu_type() {
-            instr.function = Some(decode_xalu_function(word)?);
-            instr.rs = rs(word)?;
-            instr.rt = rt(word)?;
-            instr.rd = rd(word)?;
-        } else if instr.is_xalui_type() {
-            instr.function = Some(decode_xalu_function(word)?);
-            instr.rs = rs(word)?;
-            instr.rd = rd(word)?;
-            instr.constant = bits(word, 20..16)
-                .try_into().ok()
-                .and_then(|x: u8| x.try_into().ok())
-                .ok_or(AisError::Decode(Field::Const))
-                .map(Some)?;
-        } else if instr.opcode == Opcode::XJ {
-            instr.rt = rt(word)?;
-            instr.function = Some(decode_xj_function(word)?);
-        } else if instr.opcode == Opcode::XMISC {
-            instr.rs = rs(word)?;
-            instr.rt = rt(word)?;
-            instr.rd = rd(word)?;
-
-            let subfunc =
-                FromPrimitive::from_u32(bits(word, 10..6)).ok_or(AisError::DecodeIssue)?;
-            let other_bits = bits(word, 5..0).try_into().unwrap();
-
-            instr.function = Some(Function::Xmisc(subfunc, other_bits));
-        } else if instr.is_xls_type() || instr.opcode == Opcode::XLEAD {
-            // The XLS type has an other order of fields
-            let xls_rs_bits = bits(word, 15..11).try_into().unwrap();
-
-
-            instr.rs = Some(reg(xls_rs_bits, Field::RS)?);
-            instr.rt = rt(word)?;
-            instr.offset = bits(word, 25..21).try_into().ok().and_then(|x: u8| x.try_into().ok()).ok_or(AisError::Decode(Field::Offset)).map(Some)?;
-            instr.function = Some(decode_function(instr.opcode, word)?);
-        } else {
-            return Err(AisError::DecodeError(bytes.into()));
-        }
-
-        let code = instr.encode32()?;
-        instr.mask = word & !code;
-
-        assert!(word == code | instr.mask, "{:?} {:08X} {:08X} {:08X}", instr, word, code, instr.mask);
-
-        Ok((instr, 6))
+        crate::decode::decode(bytes)
     }
-}
-
-fn decode_xalu_function(word: u32) -> Result<Function, AisError> {
-    let sub_op_bits = bits(word, 4..0);
-    let dp_cntl_bits = bits(word, 7..5);
-    let sub_op = FromPrimitive::from_u32(sub_op_bits).ok_or(AisError::DecodeIssue)?;
-    let dp_cntl = FromPrimitive::from_u32(dp_cntl_bits).ok_or(AisError::DecodeIssue)?;
-    Ok(Function::Xalu(sub_op, dp_cntl))
-}
-
-fn bits(word: u32, bits: Range<u32>) -> u32 {
-    let mask = (1 << (bits.start - bits.end + 1)) - 1;
-    (word >> bits.end) & mask
-}
-
-fn decode_xio_function(word: u32) -> Result<Function, AisError> {
-    let sub_op_bits = bits(word, 10..9);
-    let addr_size_bits = bits(word, 8..8) << 1 | bits(word, 0..0);
-    let size_bits = bits(word, 7..6) << 1 | bits(word, 1..1);
-    let sel_bits = bits(word, 5..2);
-
-    let sub_op = FromPrimitive::from_u32(sub_op_bits).ok_or(AisError::DecodeIssue)?;
-    let addr_size = FromPrimitive::from_u32(addr_size_bits).ok_or(AisError::DecodeIssue)?;
-    let size = FromPrimitive::from_u32(size_bits).ok_or(AisError::DecodeIssue)?;
-    let sel = FromPrimitive::from_u32(sel_bits).ok_or(AisError::DecodeIssue)?;
-
-    Ok(Function::Xio(sub_op, addr_size, size, sel))
-}
-
-fn decode_xj_function(word: u32) -> Result<Function, AisError> {
-    let size = FromPrimitive::from_u32(bits(word, 7..6)).ok_or(AisError::DecodeIssue)?;
-    let mode = FromPrimitive::from_u32(bits(word, 1..0)).ok_or(AisError::DecodeIssue)?;
-    Ok(Function::Xj(size, mode))
-}
-
-fn decode_function(opcode: Opcode, word: u32) -> Result<Function, AisError> {
-    match opcode {
-        Opcode::XIOR | Opcode::XIOW => decode_xio_function(word),
-        Opcode::XLEAD | Opcode::XLEAI => {
-            let addr_size_bits = bits(word, 8..8) << 1 | bits(word, 0..0);
-            let size_bits = bits(word, 2..2) << 3 | bits(word, 7..6) << 1 | bits(word, 1..1);
-
-            let addr_size = FromPrimitive::from_u32(addr_size_bits).ok_or(AisError::DecodeIssue)?;
-            let size = FromPrimitive::from_u32(size_bits).ok_or(AisError::DecodeIssue)?;
-
-            Ok(Function::Xlea(addr_size, size))
-        }
-        Opcode::XPUSH | Opcode::XPOP | Opcode::XPUSHIP => {
-            let sub_op_bits = bits(word, 10..9);
-            let addr_size_bits = bits(word, 8..8) << 1 | bits(word, 0..0);
-            let size_bits = bits(word, 7..6) << 1 | bits(word, 1..1);
-            let sel_bits = bits(word, 5..2);
-
-            //let sub_op = FromPrimitive::from_u32(sub_op_bits).ok_or(AisError::DecodeIssue)?;
-            let addr_size = FromPrimitive::from_u32(addr_size_bits).ok_or(AisError::DecodeIssue)?;
-            let size = FromPrimitive::from_u32(size_bits).ok_or(AisError::DecodeIssue)?;
-            let sel = FromPrimitive::from_u32(sel_bits).ok_or(AisError::DecodeIssue)?;
-
-            Ok(Function::Xls(
-                SubOp::Raw(sub_op_bits.try_into().unwrap()),
-                addr_size,
-                size,
-                sel,
-            ))
-        }
-        _ => todo!(),
-    }
-}
-
-fn decode_opcode(word: u32) -> Result<Opcode, AisError> {
-    let opcode_bits = (word >> 26) & 0x3F;
-    FromPrimitive::from_u32(opcode_bits).ok_or(AisError::UnknownOpcode(opcode_bits))
 }

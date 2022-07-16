@@ -1,4 +1,5 @@
-use crate::ais::{AisError, Const, DpCntl, Instruction, Opcode, Register, Size, SubOpXalu};
+use crate::ais::{AisError, Const, Instruction, Register, Size};
+use crate::asm;
 
 #[derive(Debug)]
 pub enum DynAsmError {
@@ -190,31 +191,11 @@ impl DynAsm {
 
         match (high_zero, low_zero) {
             (false, false) => {
-                self.gen(Instruction::i_type(
-                    Opcode::ORI,
-                    dst.clone(),
-                    Register::R0,
-                    imm as u16,
-                ))?;
-                self.gen(Instruction::i_type(
-                    Opcode::ORIU,
-                    dst.clone(),
-                    dst,
-                    (imm >> 16) as u16,
-                ))?;
+                self.gen(asm::xori(dst, Register::R0, imm as u16))?;
+                self.gen(asm::xoriu(dst, dst, (imm >> 16) as u16))?;
             }
-            (false, true) => self.gen(Instruction::i_type(
-                Opcode::ORIU,
-                dst,
-                Register::R0,
-                (imm >> 16) as u16,
-            ))?,
-            (true, _) => self.gen(Instruction::i_type(
-                Opcode::ORI,
-                dst,
-                Register::R0,
-                imm as u16,
-            ))?,
+            (false, true) => self.gen(asm::xoriu(dst, Register::R0, (imm >> 16) as u16))?,
+            (true, _) => self.gen(asm::xori(dst, Register::R0, imm as u16))?,
         }
 
         Ok(())
@@ -222,20 +203,15 @@ impl DynAsm {
 
     pub fn gen_load_symbol(&mut self, dst: Register, sym: Sym) -> Result<(), DynAsmError> {
         let low = self.sym_ref_imm_low(sym)?;
-        self.gen(Instruction::i_type(
-            Opcode::ORI,
-            dst.clone(),
-            Register::R0,
-            low,
-        ))?;
+        self.gen(asm::xori(dst, Register::R0, low))?;
 
         let high = self.sym_ref_imm_high(sym)?;
-        self.gen(Instruction::i_type(Opcode::ORIU, dst.clone(), dst, high))
+        self.gen(asm::xoriu(dst, dst, high))
     }
 
     pub fn gen_jump(&mut self, sym: Sym) -> Result<(), DynAsmError> {
         self.gen_load_symbol(Register::R4, sym)?;
-        self.gen(Instruction::xj(Register::R4))?;
+        self.gen(asm::j(Register::R4))?;
         Ok(())
     }
 
@@ -245,43 +221,31 @@ impl DynAsm {
         let r5 = Register::R5;
 
         // AND condition with one to make sure its 0 or 1
-        self.gen(Instruction::xaluir(
-            SubOpXalu::AND,
-            DpCntl::Word,
-            r5,
-            cond,
-            Const::Number(1),
-        ))?;
+        self.gen(asm::andi(r5, cond, Const::Number(1)))?;
 
         // Map 0 to 0x0000_0000 and 1 to 0xFFFF_FFFF
-        self.gen(Instruction::xalur(SubOpXalu::SUB, DpCntl::Word, r4, r0, r5))?;
+        self.gen(asm::sub(r4, r0, r5))?;
 
         // AND in true branch sym address
         let low = self.sym_ref_imm_low(t)?;
-        self.gen(Instruction::i_type(Opcode::ANDIL, r4, r4, low))?;
+        self.gen(asm::xandil(r4, r4, low))?;
         let high = self.sym_ref_imm_high(t)?;
-        self.gen(Instruction::i_type(Opcode::ANDIU, r4, r4, high))?;
+        self.gen(asm::xandiu(r4, r4, high))?;
 
         // Map 0 to 0xFFFF_FFFF and 1 to 0x0000_0000
-        self.gen(Instruction::xaluir(
-            SubOpXalu::SUB,
-            DpCntl::Word,
-            r5,
-            r5,
-            Const::Number(1),
-        ))?;
+        self.gen(asm::subi(r5, r5, Const::Number(1)))?;
 
         // AND in false branch sym address
         let low = self.sym_ref_imm_low(f)?;
-        self.gen(Instruction::i_type(Opcode::ANDIL, r5, r5, low))?;
+        self.gen(asm::xandil(r5, r5, low))?;
         let high = self.sym_ref_imm_high(f)?;
-        self.gen(Instruction::i_type(Opcode::ANDIU, r5, r5, high))?;
+        self.gen(asm::xandiu(r5, r5, high))?;
 
         // Merge jump locations
-        self.gen(Instruction::xalur(SubOpXalu::OR, DpCntl::Word, r4, r4, r5))?;
+        self.gen(asm::or(r4, r4, r5))?;
 
         // Jump
-        self.gen(Instruction::xj(r4))?;
+        self.gen(asm::j(r4))?;
 
         Ok(())
     }
@@ -289,22 +253,16 @@ impl DynAsm {
     pub fn gen_call(&mut self, sym: Sym) -> Result<(), DynAsmError> {
         let r4 = Register::R4;
         self.gen_load_symbol(r4, sym)?;
-        self.gen(Instruction::xpuship(Size::Bits32))?;
-        self.gen(Instruction::xj(r4))?;
+        self.gen(asm::puship(Size::Bits32))?;
+        self.gen(asm::j(r4))?;
         Ok(())
     }
 
     pub fn gen_ret(&mut self) -> Result<(), DynAsmError> {
         let r4 = Register::R4;
-        self.gen(Instruction::xpop(Size::Bits32, r4))?;
-        self.gen(Instruction::xaluir(
-            SubOpXalu::ADD,
-            DpCntl::Word,
-            r4,
-            r4,
-            Const::Number(6),
-        ))?;
-        self.gen(Instruction::xj(r4))?;
+        self.gen(asm::popsp(Size::Bits32, r4))?;
+        self.gen(asm::addi(r4, r4, Const::Number(6)))?;
+        self.gen(asm::j(r4))?;
         Ok(())
     }
 
