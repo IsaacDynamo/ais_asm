@@ -6,9 +6,13 @@ use crate::ais::{
     AisError, Const, DpCntl, Function, Instruction, Offset, Opcode, Register, Size, SubOpXalu,
 };
 
-fn bits(word: u32, bits: Range<u32>) -> u32 {
-    let mask = (1 << (bits.start - bits.end + 1)) - 1;
-    (word >> bits.end) & mask
+fn bit(word: u32, bit: u32) -> u32 {
+    (word >> bit) & 1
+}
+
+fn bits(word: u32, high: u32, low: u32) -> u32 {
+    let mask = (1 << (high - low + 1)) - 1;
+    (word >> low) & mask
 }
 
 fn encode_opcode(instr: &Instruction) -> Result<u32, AisError> {
@@ -105,11 +109,11 @@ fn encode_function(instr: &Instruction) -> Result<u32, AisError> {
             let addr_size = addr_size as u32;
             let size = size as u32;
 
-            bits(addr_size, 1..1) << 8
-                | bits(size, 2..1) << 6
-                | bits(size, 3..3) << 2
-                | bits(size, 0..0) << 1
-                | bits(addr_size, 0..0)
+            bit(addr_size, 1) << 8
+                | bits(size, 2, 1) << 6
+                | bit(size, 3) << 2
+                | bit(size, 0) << 1
+                | bit(addr_size, 0)
         }
         Function::Raw(x) => x.into(),
         Function::Xmisc(sub_func, raw) => {
