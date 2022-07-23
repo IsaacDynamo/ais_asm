@@ -1,10 +1,7 @@
 use num::FromPrimitive;
-use num_derive::FromPrimitive;
-use std::{convert::TryFrom, ops::Range};
 
 use crate::ais::{
-    AisError, Const, DpCntl, Field, Function, Instruction, Offset, Opcode, Register, Size, SubOp,
-    SubOpXalu,
+    AisError, Field, Function, Instruction, Opcode, Register, SubOp,
 };
 
 fn bit(word: u32, bit: u32) -> u32 {
@@ -98,10 +95,6 @@ pub fn decode(bytes: &[u8]) -> Result<(Instruction, usize), AisError> {
     let opcode = decode_opcode(word)?;
     let mut instr = Instruction::new(opcode);
 
-    let rt_bits: u8 = bits(word, 20, 16).try_into().unwrap();
-    let function_bits: u16 = bits(word, 10, 0).try_into().unwrap();
-    let imm_bits = bits(word, 15, 0).try_into().unwrap();
-
     fn reg(bits: u32, field: Field) -> Result<Register, AisError> {
         let x: u8 = bits.try_into().map_err(|_| AisError::Decode(field))?;
         x.try_into().map_err(|_| AisError::Decode(field))
@@ -125,6 +118,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Instruction, usize), AisError> {
     if instr.is_i_type() {
         instr.rs = rs(word)?;
         instr.rt = rt(word)?;
+        let imm_bits = bits(word, 15, 0).try_into().unwrap();
         instr.imm = Some(imm_bits);
     } else if instr.is_xalu_type() {
         instr.function = Some(decode_xalu_function(word)?);
@@ -155,7 +149,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Instruction, usize), AisError> {
         instr.function = Some(Function::Xmisc(subfunc, other_bits));
     } else if instr.is_xls_type() || instr.opcode == Opcode::XLEAD {
         // The XLS type has an other order of fields
-        let xls_rs_bits = bits(word, 15, 11).try_into().unwrap();
+        let xls_rs_bits = bits(word, 15, 11);
 
         instr.rs = Some(reg(xls_rs_bits, Field::RS)?);
         instr.rt = rt(word)?;
@@ -170,10 +164,10 @@ pub fn decode(bytes: &[u8]) -> Result<(Instruction, usize), AisError> {
         return Err(AisError::DecodeError(bytes.into()));
     }
 
-    // let code = instr.encode32()?;
-    // instr.mask = word & !code;
+    // Fill leftovers with leftover, unrepresented bits.
+    let code = crate::encode::encode32(&instr)?;
+    instr.leftovers = word & !code;
 
-    // assert!(word == code | instr.mask, "{:?} {:08X} {:08X} {:08X}", instr, word, code, instr.mask);
 
     Ok((instr, 6))
 }

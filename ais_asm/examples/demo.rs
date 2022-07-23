@@ -2,7 +2,7 @@
 extern crate ais_asm;
 
 use ais_asm::ais::{
-    AisError, Const, DpCntl, Function, Instruction, Offset, Opcode, Register, Size, SubOpXalu, AddrSize
+    Const, Offset, Opcode, Register, Size, AddrSize
 };
 use ais_asm::dynasm::{DynAsm, DynAsmError, Sym};
 use ais_asm::asm;
@@ -14,15 +14,8 @@ use std::process::Command;
 
 #[derive(Debug)]
 enum TopError {
-    AisError(AisError),
     DynAsmError(DynAsmError),
     IoError(std::io::Error),
-}
-
-impl From<AisError> for TopError {
-    fn from(x: AisError) -> Self {
-        Self::AisError(x)
-    }
 }
 
 impl From<DynAsmError> for TopError {
@@ -102,7 +95,6 @@ fn demo(asm: &mut DynAsm) -> Result<(), TopError> {
 
 fn tests(asm: &mut DynAsm) -> Result<(), TopError> {
     let eax: Register = Register::EAX;
-    let edx: Register = Register::EDX;
 
     // asm.gen_load(eax, 33)?;
     // asm.gen_load(edx, 0x3F8)?;
@@ -151,7 +143,6 @@ fn dump_cp2_regs(asm: &mut DynAsm) -> Result<(), TopError> {
 }
 
 fn dump_regs(asm: &mut DynAsm) -> Result<(), TopError> {
-    let eax: Register = Register::EAX;
     let edx: Register = Register::EDX;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
@@ -177,7 +168,7 @@ fn dump_offset(asm: &mut DynAsm) -> Result<(), TopError> {
             Size::Bits32,
         );
 
-        instr.mask = i << 21;
+        instr.leftovers = i << 21;
         asm.gen(instr)?;
         asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
     }
@@ -239,7 +230,6 @@ fn test_xj(asm: &mut DynAsm) -> Result<(), TopError> {
     let eax: Register = Register::EAX;
     let edx: Register = Register::EDX;
     let ecx: Register = Register::ECX;
-    let r0: Register = Register::R0;
     let r4: Register = Register::R4;
     let r5: Register = Register::R5;
     let r6: Register = Register::R6;
@@ -255,11 +245,9 @@ fn test_xj(asm: &mut DynAsm) -> Result<(), TopError> {
         (0xFFFF_FFFF, 1),           // 0x57 ZF, CF
     ];
 
-    //for j in 0..8 {
     for (a, b) in comb {
         asm.gen_load(eax, 0)?;
-        // asm.gen_load(r6, 0xFFFF_FFFF)?;
-        // asm.gen_load(r7, 1)?;
+
         asm.gen_load(r6, a)?;
         asm.gen_load(r7, b)?;
 
@@ -273,26 +261,13 @@ fn test_xj(asm: &mut DynAsm) -> Result<(), TopError> {
 
             let mut xj = asm::j(r4);
             xj.opcode = Opcode::XJ;
-            xj.mask = 6 << 11 | i << 2;
+            xj.leftovers = 6 << 11 | i << 2;
             asm.gen(xj)?;
             asm.gen(asm::or(eax, eax, ecx))?;
             asm.set_sym_here(jmp)?;
         }
 
         asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
-
-        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-        // asm.gen(asm::xalur(SubOpXalu::ADD, DpCntl::Word, r5, r6, r7))?;
-
-        // asm.gen(asm::cfc2(eax, 31.try_into()?))?;
-
-        // let mut push = asm::xpush(Size::Bits32, eax);
-        // push.rt = Some(edx);
-        // push.offset = Some(Offset::Number(4));
-        // asm.gen(push)?;
     }
 
     Ok(())
@@ -387,7 +362,7 @@ fn test_timestamp(asm: &mut DynAsm) -> Result<(), TopError> {
     let edx: Register = Register::EDX;
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
-    for i in 0..16 {
+    for _ in 0..16 {
         asm.gen(asm::cfc2(eax, Register(19)))?;
         asm.gen(asm::cfc2(ecx, Register(19)))?;
         asm.gen(asm::push(Size::Bits32, eax, edx, Offset::Number(4)))?;
@@ -397,7 +372,7 @@ fn test_timestamp(asm: &mut DynAsm) -> Result<(), TopError> {
     Ok(())
 }
 
-fn manual_constants() {
+fn dump_manual_constants() {
     let entry = decode(&[0x62, 0x80, 0x19, 0x08, 0xE0, 0x83]);
     let exit = decode(&[0x62, 0x80, 0x47, 0x00, 0x10, 0x18]);
     println!("entry: {:?}", entry);
@@ -411,6 +386,7 @@ fn manual_constants() {
 
 fn main() -> Result<(), TopError> {
 
+    dump_manual_constants();
 
     // Gen some code, at location 0x480000, this is where our kernel will place the payload
     let mut asm = DynAsm::new(0x48_0000);
@@ -418,6 +394,9 @@ fn main() -> Result<(), TopError> {
     // Add x86 to AIS transition header
     asm.gen_header();
 
+    demo(&mut asm)?;
+    tests(&mut asm)?;
+    dump_cp2_regs(&mut asm)?;
     test_eflags(&mut asm)?;
     test_xj(&mut asm)?;
     dump_regs(&mut asm)?;

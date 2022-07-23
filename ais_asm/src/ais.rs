@@ -53,9 +53,8 @@ XRET, XCNULL, XRFP, XHALT SBF/SBN, XTI, XTII, XMDB, XMDBI
 
 */
 
-use num::FromPrimitive;
 use num_derive::FromPrimitive;
-use std::{convert::TryFrom, ops::Range};
+use std::convert::TryFrom;
 
 #[derive(Debug)]
 pub enum AisError {
@@ -485,7 +484,7 @@ pub struct Instruction {
     pub constant: Option<Const>,
     pub offset: Option<Offset>,
     pub function: Option<Function>,
-    pub mask: u32,
+    pub leftovers: u32, // Bits that are not represented by other fields.
 }
 
 impl Instruction {
@@ -499,7 +498,7 @@ impl Instruction {
             constant: None,
             offset: None,
             function: None,
-            mask: 0,
+            leftovers: 0,
         }
     }
 
@@ -533,7 +532,7 @@ impl Instruction {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, AisError> {
-        crate::encode::encode(&self)
+        crate::encode::encode(self)
     }
 
     pub fn decode(bytes: &[u8]) -> Result<(Instruction, usize), AisError> {

@@ -1,9 +1,5 @@
-use num::FromPrimitive;
-use num_derive::FromPrimitive;
-use std::{convert::TryFrom, ops::Range};
-
 use crate::ais::{
-    AisError, Const, DpCntl, Function, Instruction, Offset, Opcode, Register, Size, SubOpXalu,
+    AisError, Const, Function, Instruction, Opcode, Register,
 };
 
 fn bit(word: u32, bit: u32) -> u32 {
@@ -87,7 +83,7 @@ fn encode_function(instr: &Instruction) -> Result<u32, AisError> {
     let bits = match function {
         Function::Xalu(sub_op, dp_cntl) => (sub_op as u32) | (dp_cntl as u32) << 5,
         Function::Xio(sub_op, addr_size, size, sel) => {
-            let subop_bits = (sub_op as u32) << 9; // self.encode_sub_op_xls(sub_op)?;
+            let subop_bits = (sub_op as u32) << 9;
             subop_bits
                 | (addr_size as u32 & 2) << 7
                 | ((size as u32) & 0x6) << 5
@@ -97,7 +93,7 @@ fn encode_function(instr: &Instruction) -> Result<u32, AisError> {
         }
         Function::Xj(size, mode) => (size as u32) << 6 | mode as u32,
         Function::Xls(sub_op, addr_size, size, sel) => {
-            let subop_bits = 0; //(sub_op as u32) << 9; // self.encode_sub_op_xls(sub_op)?;
+            let subop_bits = 0; //FIX: (sub_op as u32) << 9; // self.encode_sub_op_xls(sub_op)?;
             subop_bits
                 | (addr_size as u32 & 2) << 7
                 | ((size as u32) & 0x6) << 5
@@ -180,7 +176,7 @@ pub fn encode32(instr: &Instruction) -> Result<u32, AisError> {
         return Err(AisError::Unsupported(*instr));
     };
 
-    Ok(word | instr.mask)
+    Ok(word | instr.leftovers)
 }
 
 pub fn encode(instr: &Instruction) -> Result<Vec<u8>, AisError> {

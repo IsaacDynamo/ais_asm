@@ -156,7 +156,7 @@ pub fn j(base: Register) -> Instruction {
     let mut ret = Instruction::new(Opcode::XJ);
     ret.rt = Some(base);
     ret.function = Some(Function::Xj(XjSize::Bits32, XjMode::AIS));
-    ret.mask = 0b0001 << 2;
+    ret.leftovers = 0b0001 << 2; // Use leftovers to set undocumented bit field
     ret
 }
 
