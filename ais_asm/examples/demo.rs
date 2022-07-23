@@ -1,12 +1,9 @@
-
 extern crate ais_asm;
 
-use ais_asm::ais::{
-    Const, Offset, Opcode, Register, Size, AddrSize
-};
-use ais_asm::dynasm::{DynAsm, DynAsmError, Sym};
+use ais_asm::ais::{AddrSize, Const, Offset, Opcode, Register, Size};
 use ais_asm::asm;
 use ais_asm::decode::decode;
+use ais_asm::dynasm::{DynAsm, DynAsmError, Sym};
 
 use std::fs::File;
 use std::io::Write;
@@ -160,13 +157,7 @@ fn dump_offset(asm: &mut DynAsm) -> Result<(), TopError> {
 
     asm.gen_load(edx, 0x50_0000 - 4)?;
     for i in 0..32 {
-        let mut instr = asm::lead(
-            eax,
-            r0,
-            Offset::Number(0),
-            AddrSize::Bits32,
-            Size::Bits32,
-        );
+        let mut instr = asm::lead(eax, r0, Offset::Number(0), AddrSize::Bits32, Size::Bits32);
 
         instr.leftovers = i << 21;
         asm.gen(instr)?;
@@ -385,7 +376,6 @@ fn dump_manual_constants() {
 }
 
 fn main() -> Result<(), TopError> {
-
     dump_manual_constants();
 
     // Gen some code, at location 0x480000, this is where our kernel will place the payload

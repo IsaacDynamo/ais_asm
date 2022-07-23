@@ -1,6 +1,4 @@
-use crate::ais::{
-    AisError, Const, Function, Instruction, Opcode, Register,
-};
+use crate::ais::{AisError, Field, Function, Instruction, Opcode, Register};
 
 fn bit(word: u32, bit: u32) -> u32 {
     (word >> bit) & 1
@@ -16,69 +14,54 @@ fn encode_opcode(instr: &Instruction) -> Result<u32, AisError> {
 }
 
 fn encode_rs(instr: &Instruction) -> Result<u32, AisError> {
-    encode_register(&instr.rs, || AisError::MissingRs(*instr)).map(|x| x << 21)
+    encode_register(&instr.rs, AisError::Missing(Field::RS)).map(|x| x << 21)
 }
 
 fn encode_rt(instr: &Instruction) -> Result<u32, AisError> {
-    encode_register(&instr.rt, || AisError::MissingRt(*instr)).map(|x| x << 16)
+    encode_register(&instr.rt, AisError::Missing(Field::RT)).map(|x| x << 16)
 }
 
 fn encode_rd(instr: &Instruction) -> Result<u32, AisError> {
-    encode_register(&instr.rd, || AisError::MissingRd(*instr)).map(|x| x << 11)
+    encode_register(&instr.rd, AisError::Missing(Field::RD)).map(|x| x << 11)
 }
 
-fn encode_register<F: FnOnce() -> AisError>(
-    register: &Option<Register>,
-    func: F,
-) -> Result<u32, AisError> {
-    register.as_ref().ok_or_else(func).map(|x| x.0.into())
+fn encode_register(register: &Option<Register>, err: AisError) -> Result<u32, AisError> {
+    register.as_ref().ok_or(err).map(|x| x.0.into())
 }
 
 fn encode_imm(instr: &Instruction) -> Result<u32, AisError> {
     instr
         .imm
-        .ok_or_else(|| AisError::MissingImmediate(*instr))
+        .ok_or(AisError::Missing(Field::Immediate))
         .map(|x| x.into())
 }
 
 fn encode_const(instr: &Instruction) -> Result<u32, AisError> {
-    let c = instr
-        .constant
-        .ok_or_else(|| AisError::MissingConstant(*instr))?;
+    let c = instr.constant.ok_or(AisError::Missing(Field::Const))?;
 
-    let bits = match c {
-        Const::Number(0) => 0b00000,
-        Const::Number(1) => 0b00001,
+    let x: u8 = c
+        .try_into()
+        .ok()
+        .ok_or(AisError::Unsupported(Field::Const))?;
+    let x: u32 = x.into();
 
-        Const::Number(5) => 0b01111,
-
-        Const::Number(6) => 0b10010,
-
-        Const::Raw(x) => x.into(),
-        _ => todo!(),
-    };
-
-    Ok(bits << 16)
+    Ok(x << 16)
 }
 
 fn encode_offset(instr: &Instruction) -> Result<u32, AisError> {
-    let offset = instr
-        .offset
-        .ok_or_else(|| AisError::MissingOffset(*instr))?;
+    let offset = instr.offset.ok_or(AisError::Missing(Field::Offset))?;
 
     let x: u8 = offset
         .try_into()
         .ok()
-        .ok_or(AisError::UnsupportedOffset(offset))?;
+        .ok_or(AisError::Unsupported(Field::Offset))?;
     let x: u32 = x.into();
 
     Ok(x << 21)
 }
 
 fn encode_function(instr: &Instruction) -> Result<u32, AisError> {
-    let function = instr
-        .function
-        .ok_or_else(|| AisError::MissingFunction(*instr))?;
+    let function = instr.function.ok_or(AisError::Missing(Field::Function))?;
 
     let bits = match function {
         Function::Xalu(sub_op, dp_cntl) => (sub_op as u32) | (dp_cntl as u32) << 5,
@@ -93,7 +76,11 @@ fn encode_function(instr: &Instruction) -> Result<u32, AisError> {
         }
         Function::Xj(size, mode) => (size as u32) << 6 | mode as u32,
         Function::Xls(sub_op, addr_size, size, sel) => {
-            let subop_bits = 0; //FIX: (sub_op as u32) << 9; // self.encode_sub_op_xls(sub_op)?;
+            let subop_bits: u8 = sub_op
+                .try_into()
+                .ok()
+                .ok_or(AisError::Unsupported(Field::Function))?;
+            let subop_bits = (subop_bits as u32) << 9;
             subop_bits
                 | (addr_size as u32 & 2) << 7
                 | ((size as u32) & 0x6) << 5
@@ -151,29 +138,24 @@ pub fn encode32(instr: &Instruction) -> Result<u32, AisError> {
         let rt = encode_rt(instr)?;
         let function = encode_function(instr)?;
 
-        //assert!(function == 0b01_0001_00); // 32bit & stay in AIS mode
-
         op | rt | function
     } else if instr.opcode == Opcode::XMISC {
         let op = encode_opcode(instr)?;
-        let rs = 0; //self.encode_rs()?;
         let rt = encode_rt(instr)?;
         let rd = encode_rd(instr)?;
         let function = encode_function(instr)?;
 
-        op | rs | rt | rd | function
+        op | rt | rd | function
     } else if instr.is_xls_type() || instr.opcode == Opcode::XLEAD {
         let op = encode_opcode(instr)?;
         let offset = encode_offset(instr)?;
         let base = encode_rt(instr)?;
-        let rs = encode_register(&instr.rs, || AisError::MissingRs(*instr))? << 11;
+        let rs = encode_register(&instr.rs, AisError::Missing(Field::RS))? << 11;
         let function = encode_function(instr)?;
-
-        //assert!(function == 0b00_1_00_1010_1_0);
 
         op | offset | base | rs | function
     } else {
-        return Err(AisError::Unsupported(*instr));
+        return Err(AisError::Unsupported(Field::Opcode));
     };
 
     Ok(word | instr.leftovers)

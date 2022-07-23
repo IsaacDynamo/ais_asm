@@ -58,32 +58,16 @@ use std::convert::TryFrom;
 
 #[derive(Debug)]
 pub enum AisError {
-    InvalidRegisterIndex(u8),
-    InvalidRegisterName(String),
-
-    Unsupported(Instruction),
-
-    MissingImmediate(Instruction),
-    MissingRs(Instruction),
-    MissingRt(Instruction),
-    MissingRd(Instruction),
-    MissingConstant(Instruction),
-    MissingOffset(Instruction),
-    MissingFunction(Instruction),
-    UnsupportedOffset(Offset),
-
-    DecodeError(Vec<u8>),
-    DecodeIssue,
-
-    UnknownOpcode(u32),
-    UnknownOffset(u8),
-    UnknownConst(u8),
-
+    DecodeSize,
+    DecodeHeader,
     Decode(Field),
+    Missing(Field),
+    Unsupported(Field),
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum Field {
+    Opcode,
     Const,
     Offset,
     Immediate,
@@ -335,8 +319,29 @@ pub enum Sel {
 
 #[derive(Debug, Copy, Clone)]
 pub enum SubOp {
-    Xio(SubOpXio),
     Raw(u8),
+}
+
+impl TryFrom<u8> for SubOp {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            x if x < 4 => Self::Raw(x),
+            _ => return Err(()),
+        })
+    }
+}
+
+impl TryInto<u8> for SubOp {
+    type Error = ();
+
+    fn try_into(self) -> Result<u8, Self::Error> {
+        Ok(match self {
+            Self::Raw(x) if x < 4 => x,
+            _ => return Err(()),
+        })
+    }
 }
 
 #[derive(Debug, Copy, Clone, FromPrimitive)]
