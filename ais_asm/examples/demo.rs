@@ -1,15 +1,12 @@
-mod ais;
-mod asm;
-mod decode;
-mod dynasm;
-mod encode;
 
-use crate::ais::{
-    AisError, Const, DpCntl, Function, Instruction, Offset, Opcode, Register, Size, SubOpXalu,
+extern crate ais_asm;
+
+use ais_asm::ais::{
+    AisError, Const, DpCntl, Function, Instruction, Offset, Opcode, Register, Size, SubOpXalu, AddrSize
 };
-use crate::dynasm::{DynAsm, DynAsmError, Sym};
-
-use crate::decode::decode;
+use ais_asm::dynasm::{DynAsm, DynAsmError, Sym};
+use ais_asm::asm;
+use ais_asm::decode::decode;
 
 use std::fs::File;
 use std::io::Write;
@@ -131,9 +128,9 @@ fn tests(asm: &mut DynAsm) -> Result<(), TopError> {
     asm.gen(asm::lead(
         eax,
         Register::R0,
-        ais::Offset::MDOS,
-        ais::AddrSize::Bits32,
-        ais::Size::Bits32,
+        Offset::MDOS,
+        AddrSize::Bits32,
+        Size::Bits32,
     ))?;
 
     Ok(())
@@ -176,7 +173,7 @@ fn dump_offset(asm: &mut DynAsm) -> Result<(), TopError> {
             eax,
             r0,
             Offset::Number(0),
-            ais::AddrSize::Bits32,
+            AddrSize::Bits32,
             Size::Bits32,
         );
 
@@ -400,7 +397,7 @@ fn test_timestamp(asm: &mut DynAsm) -> Result<(), TopError> {
     Ok(())
 }
 
-fn main() -> Result<(), TopError> {
+fn manual_constants() {
     let entry = decode(&[0x62, 0x80, 0x19, 0x08, 0xE0, 0x83]);
     let exit = decode(&[0x62, 0x80, 0x47, 0x00, 0x10, 0x18]);
     println!("entry: {:?}", entry);
@@ -410,6 +407,10 @@ fn main() -> Result<(), TopError> {
     let eflags_store = decode(&[0x62, 0x80, 0x19, 0xF8, 0xE0, 0x80]);
     println!("eflags_load:  {:?}", eflags_load);
     println!("eflags_store: {:?}", eflags_store);
+}
+
+fn main() -> Result<(), TopError> {
+
 
     // Gen some code, at location 0x480000, this is where our kernel will place the payload
     let mut asm = DynAsm::new(0x48_0000);
