@@ -51,7 +51,7 @@ void push(int x) {
 }
 ~~~
 
-The assembler can be run with `cd ais_asm; cargo run`
+The assembler can be run with `cd ais_asm; cargo run --example demo`
 
 It will list the generated instructions. Most instruction are ORI or ORIU, because these can be used together with the zero register to load any 32bit value into a register.
 
@@ -180,7 +180,7 @@ Disassembly of section .data:
 
 Running `ais_asm` created `out.bin`. This payload can now be combined with the kernel.
 
-Run `cd ../kernel; cargo build` to build the kernel. The kernel just `core::include_bytes!()` the `out.bin`,  so the kernel should be rebuild when `out.bin` has changed.
+Run `cd ../kernel; cargo build` to build the kernel. The kernel just `core::include_bytes!()` the `out.bin`, so the kernel should be rebuild when `out.bin` has changed.
 
 When building is done there will be a multiboot elf file in `target/viac3-unknown-none/debug/kernel`.
 
