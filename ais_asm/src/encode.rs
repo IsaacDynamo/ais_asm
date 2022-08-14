@@ -1,13 +1,5 @@
 use crate::ais::{AisError, Field, Function, Instruction, Opcode, Register};
-
-fn bit(word: u32, bit: u32) -> u32 {
-    (word >> bit) & 1
-}
-
-fn bits(word: u32, high: u32, low: u32) -> u32 {
-    let mask = (1 << (high - low + 1)) - 1;
-    (word >> low) & mask
-}
+use crate::{bit, bits};
 
 fn encode_opcode(instr: &Instruction) -> Result<u32, AisError> {
     Ok((instr.opcode as u32) << 26)
